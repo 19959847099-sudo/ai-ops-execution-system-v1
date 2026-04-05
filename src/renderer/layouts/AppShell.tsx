@@ -16,10 +16,10 @@ export function AppShell() {
     <div className="app-shell">
       <aside className="shell-sidebar">
         <div>
-          <p className="eyebrow">阶段 1 第 5 步</p>
+          <p className="eyebrow">阶段 1 第 6 步</p>
           <h1>AI 运营执行系统 V1</h1>
           <p className="shell-subtitle">
-            当前聚焦固定单 API（千问）系统配置，用于维护接口地址、模型、密钥与本地路径设置。
+            当前聚焦用户偏好设置页，用于维护产品、表达、设计、开发与成本偏好的常驻字段。
           </p>
         </div>
 

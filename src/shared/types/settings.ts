@@ -24,7 +24,21 @@ export type BootstrapSystemSettings = Pick<SystemSettings, 'providerName'>;
 export type ResidentUserPreferences = {
   language: string;
   navigationCollapsed: boolean;
+  productPreference: string;
+  expressionPreference: string;
+  designPreference: string;
+  developmentPreference: string;
+  costPreference: string;
 };
+
+export type EditableResidentUserPreferences = Pick<
+  ResidentUserPreferences,
+  | 'productPreference'
+  | 'expressionPreference'
+  | 'designPreference'
+  | 'developmentPreference'
+  | 'costPreference'
+>;
 
 export type SystemApiTestResult = {
   success: boolean;
@@ -36,4 +50,8 @@ export type SettingsBridgeApi = {
   getSystemSettings: () => Promise<EditableSystemSettings>;
   updateSystemSettings: (input: EditableSystemSettings) => Promise<EditableSystemSettings>;
   testSystemApi: (input: EditableSystemSettings) => Promise<SystemApiTestResult>;
+  getUserPreferences: () => Promise<EditableResidentUserPreferences>;
+  updateUserPreferences: (
+    input: EditableResidentUserPreferences,
+  ) => Promise<EditableResidentUserPreferences>;
 };

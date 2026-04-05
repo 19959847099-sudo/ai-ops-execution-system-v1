@@ -13,6 +13,7 @@ import type {
   UpdateProjectSettingsInput,
 } from '../shared/types/project';
 import type {
+  EditableResidentUserPreferences,
   EditableSystemSettings,
   SettingsBridgeApi,
   SystemApiTestResult,
@@ -51,6 +52,14 @@ const settingsApi: SettingsBridgeApi = {
   },
   testSystemApi(input: EditableSystemSettings): Promise<SystemApiTestResult> {
     return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.TEST_SYSTEM_API, input);
+  },
+  getUserPreferences(): Promise<EditableResidentUserPreferences> {
+    return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.GET_USER_PREFERENCES);
+  },
+  updateUserPreferences(
+    input: EditableResidentUserPreferences,
+  ): Promise<EditableResidentUserPreferences> {
+    return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.UPDATE_USER_PREFERENCES, input);
   },
 };
 

@@ -10,7 +10,10 @@ import type {
   ProjectListFilter,
   UpdateProjectSettingsInput,
 } from '../../shared/types/project';
-import type { EditableSystemSettings } from '../../shared/types/settings';
+import type {
+  EditableResidentUserPreferences,
+  EditableSystemSettings,
+} from '../../shared/types/settings';
 import { SettingsService } from '../services/settings.service';
 import { DbService } from '../services/db.service';
 import { ProjectService } from '../services/project.service';
@@ -71,5 +74,13 @@ export function registerCoreIpc({
   );
   ipcMain.handle(SETTINGS_IPC_CHANNELS.TEST_SYSTEM_API, (_event, input: EditableSystemSettings) =>
     settingsService.testCurrentSystemSettings(input),
+  );
+  ipcMain.handle(SETTINGS_IPC_CHANNELS.GET_USER_PREFERENCES, () =>
+    settingsService.getEditableResidentUserPreferences(),
+  );
+  ipcMain.handle(
+    SETTINGS_IPC_CHANNELS.UPDATE_USER_PREFERENCES,
+    (_event, input: EditableResidentUserPreferences) =>
+      settingsService.updateResidentUserPreferences(input),
   );
 }

@@ -5,6 +5,7 @@ import {
 } from '../../shared/schema/settings';
 import type {
   BootstrapSystemSettings,
+  EditableResidentUserPreferences,
   EditableSystemSettings,
   ResidentUserPreferences,
   SystemApiTestResult,
@@ -36,6 +37,11 @@ export class SettingsService {
     const preferenceDefaults: ResidentUserPreferences = {
       language: 'zh-CN',
       navigationCollapsed: false,
+      productPreference: '',
+      expressionPreference: '',
+      designPreference: '',
+      developmentPreference: '',
+      costPreference: '',
     };
 
     const insertSettingIfMissing = this.db.prepare(`
@@ -194,6 +200,43 @@ export class SettingsService {
     return residentUserPreferencesSchema.parse(candidate);
   }
 
+  getEditableResidentUserPreferences(): EditableResidentUserPreferences {
+    const preferences = this.getResidentUserPreferences();
+
+    return {
+      productPreference: preferences.productPreference,
+      expressionPreference: preferences.expressionPreference,
+      designPreference: preferences.designPreference,
+      developmentPreference: preferences.developmentPreference,
+      costPreference: preferences.costPreference,
+    };
+  }
+
+  updateResidentUserPreferences(
+    input: EditableResidentUserPreferences,
+  ): EditableResidentUserPreferences {
+    const preferences = this.normalizeResidentUserPreferences(input);
+    const now = new Date().toISOString();
+    const upsert = this.db.prepare(`
+      INSERT INTO resident_user_preferences (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = excluded.updated_at
+    `);
+
+    const applyUpdate = this.db.transaction(() => {
+      for (const [key, value] of Object.entries(preferences) as Array<
+        [keyof EditableResidentUserPreferences, string]
+      >) {
+        upsert.run(key, JSON.stringify(value), now);
+      }
+    });
+
+    applyUpdate();
+    return this.getEditableResidentUserPreferences();
+  }
+
   private normalizeSystemSettings(input: EditableSystemSettings): EditableSystemSettings {
     return systemSettingsSchema.parse({
       providerName: 'qwen',
@@ -203,6 +246,28 @@ export class SettingsService {
       appRootPath: input.appRootPath.trim(),
       projectRootPath: input.projectRootPath.trim(),
     });
+  }
+
+  private normalizeResidentUserPreferences(
+    input: EditableResidentUserPreferences,
+  ): EditableResidentUserPreferences {
+    const normalized = residentUserPreferencesSchema.parse({
+      language: 'zh-CN',
+      navigationCollapsed: false,
+      productPreference: input.productPreference.trim(),
+      expressionPreference: input.expressionPreference.trim(),
+      designPreference: input.designPreference.trim(),
+      developmentPreference: input.developmentPreference.trim(),
+      costPreference: input.costPreference.trim(),
+    });
+
+    return {
+      productPreference: normalized.productPreference,
+      expressionPreference: normalized.expressionPreference,
+      designPreference: normalized.designPreference,
+      developmentPreference: normalized.developmentPreference,
+      costPreference: normalized.costPreference,
+    };
   }
 
   private async readErrorMessage(response: Response): Promise<string> {

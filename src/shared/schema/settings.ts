@@ -12,4 +12,9 @@ export const systemSettingsSchema = z.object({
 export const residentUserPreferencesSchema = z.object({
   language: z.string().default('zh-CN'),
   navigationCollapsed: z.boolean().default(false),
+  productPreference: z.string().default(''),
+  expressionPreference: z.string().default(''),
+  designPreference: z.string().default(''),
+  developmentPreference: z.string().default(''),
+  costPreference: z.string().default(''),
 });

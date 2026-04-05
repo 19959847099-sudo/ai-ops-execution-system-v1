@@ -14,4 +14,6 @@ export const SETTINGS_IPC_CHANNELS = {
   GET_SYSTEM_SETTINGS: 'settings:get-system-settings',
   UPDATE_SYSTEM_SETTINGS: 'settings:update-system-settings',
   TEST_SYSTEM_API: 'settings:test-system-api',
+  GET_USER_PREFERENCES: 'settings:get-user-preferences',
+  UPDATE_USER_PREFERENCES: 'settings:update-user-preferences',
 } as const;
