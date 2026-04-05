@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { projectResidentMemorySchema } from '../../shared/schema/memory';
+import type {
+  ProjectResidentMemory,
+  UpdateProjectResidentMemoryInput,
+} from '../../shared/types/memory';
 import type {
   CreateProjectInput,
   ProjectListFilter,
@@ -193,6 +198,69 @@ export class ProjectService {
     }
 
     return updatedProject;
+  }
+
+  getProjectResidentMemory(projectId: string): ProjectResidentMemory {
+    const project = this.getProjectById(projectId);
+    if (!project) {
+      throw new Error('项目不存在。');
+    }
+
+    return projectResidentMemorySchema.parse({
+      oneLineDefinition: project.oneLineDefinition ?? '',
+      targetAudience: project.targetAudience ?? '',
+      coreValue: project.coreValue ?? '',
+      currentFocus: project.currentFocus ?? '',
+      forbiddenExpressions: project.forbiddenExpressions ?? '',
+      fixedConstraints: project.fixedConstraints ?? '',
+    });
+  }
+
+  updateProjectResidentMemory(
+    projectId: string,
+    input: UpdateProjectResidentMemoryInput,
+  ): ProjectResidentMemory {
+    const project = this.getProjectById(projectId);
+    if (!project) {
+      throw new Error('项目不存在。');
+    }
+
+    const memory = projectResidentMemorySchema.parse({
+      oneLineDefinition: input.oneLineDefinition.trim(),
+      targetAudience: input.targetAudience.trim(),
+      coreValue: input.coreValue.trim(),
+      currentFocus: input.currentFocus.trim(),
+      forbiddenExpressions: input.forbiddenExpressions.trim(),
+      fixedConstraints: input.fixedConstraints.trim(),
+    });
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `
+          UPDATE projects
+          SET one_line_definition = ?,
+              target_audience = ?,
+              core_value = ?,
+              current_focus = ?,
+              forbidden_expressions = ?,
+              fixed_constraints = ?,
+              updated_at = ?
+          WHERE id = ?
+        `,
+      )
+      .run(
+        this.normalizeOptionalText(memory.oneLineDefinition),
+        this.normalizeOptionalText(memory.targetAudience),
+        this.normalizeOptionalText(memory.coreValue),
+        this.normalizeOptionalText(memory.currentFocus),
+        this.normalizeOptionalText(memory.forbiddenExpressions),
+        this.normalizeOptionalText(memory.fixedConstraints),
+        now,
+        projectId,
+      );
+
+    return this.getProjectResidentMemory(projectId);
   }
 
   private generateSlug(name: string, id: string): string {

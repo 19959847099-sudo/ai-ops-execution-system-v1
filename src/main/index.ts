@@ -10,6 +10,7 @@ import { AssetStorageService } from './services/asset-storage.service';
 import { AssetService } from './services/asset.service';
 import { TaskService } from './services/task.service';
 import { TaskAssetService } from './services/task-asset.service';
+import { MemoryService } from './services/memory.service';
 import { registerCoreIpc } from './ipc/register-core-ipc';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,7 @@ async function bootstrapApplication(): Promise<void> {
   const assetService = new AssetService(db, projectService, assetStorageService);
   const taskService = new TaskService(db, projectService);
   const taskAssetService = new TaskAssetService(db, taskService, assetService);
+  const memoryService = new MemoryService(projectService, settingsService, taskService);
   settingsService.ensureDefaults();
 
   registerCoreIpc({
@@ -44,6 +46,7 @@ async function bootstrapApplication(): Promise<void> {
     assetService,
     taskService,
     taskAssetService,
+    memoryService,
     paths,
     appVersion: app.getVersion(),
   });

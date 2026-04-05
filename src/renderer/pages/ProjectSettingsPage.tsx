@@ -1,11 +1,14 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import type {
+  ProjectResidentMemory,
+  UpdateProjectResidentMemoryInput,
+} from '@shared/types/memory';
 import type { ProjectRecord, UpdateProjectSettingsInput } from '@shared/types/project';
 
 type FormState = UpdateProjectSettingsInput;
 
-const EMPTY_FORM: FormState = {
-  name: '',
+const EMPTY_MEMORY_FORM: ProjectResidentMemory = {
   oneLineDefinition: '',
   targetAudience: '',
   coreValue: '',
@@ -14,15 +17,31 @@ const EMPTY_FORM: FormState = {
   fixedConstraints: '',
 };
 
-function toFormState(project: ProjectRecord): FormState {
+const EMPTY_FORM: FormState = {
+  name: '',
+  ...EMPTY_MEMORY_FORM,
+};
+
+function toFormState(project: ProjectRecord, memory: ProjectResidentMemory): FormState {
   return {
     name: project.name,
-    oneLineDefinition: project.oneLineDefinition ?? '',
-    targetAudience: project.targetAudience ?? '',
-    coreValue: project.coreValue ?? '',
-    currentFocus: project.currentFocus ?? '',
-    forbiddenExpressions: project.forbiddenExpressions ?? '',
-    fixedConstraints: project.fixedConstraints ?? '',
+    oneLineDefinition: memory.oneLineDefinition,
+    targetAudience: memory.targetAudience,
+    coreValue: memory.coreValue,
+    currentFocus: memory.currentFocus,
+    forbiddenExpressions: memory.forbiddenExpressions,
+    fixedConstraints: memory.fixedConstraints,
+  };
+}
+
+function toResidentMemoryInput(form: FormState): UpdateProjectResidentMemoryInput {
+  return {
+    oneLineDefinition: form.oneLineDefinition,
+    targetAudience: form.targetAudience,
+    coreValue: form.coreValue,
+    currentFocus: form.currentFocus,
+    forbiddenExpressions: form.forbiddenExpressions,
+    fixedConstraints: form.fixedConstraints,
   };
 }
 
@@ -42,6 +61,7 @@ export function ProjectSettingsPage() {
     const loadProject = async () => {
       if (!projectId) {
         setProject(null);
+        setForm(EMPTY_FORM);
         setIsLoading(false);
         setLoadError(null);
         return;
@@ -51,14 +71,18 @@ export function ProjectSettingsPage() {
       setLoadError(null);
 
       try {
-        const result = await window.projectApi.getProjectById(projectId);
+        const [projectRecord, residentMemory] = await Promise.all([
+          window.projectApi.getProjectById(projectId),
+          window.memoryApi.getProjectResidentMemory(projectId),
+        ]);
+
         if (!disposed) {
-          setProject(result);
-          setForm(result ? toFormState(result) : EMPTY_FORM);
+          setProject(projectRecord);
+          setForm(projectRecord ? toFormState(projectRecord, residentMemory) : EMPTY_FORM);
         }
       } catch (error) {
         if (!disposed) {
-          setLoadError(error instanceof Error ? error.message : '项目设置读取失败。');
+          setLoadError(error instanceof Error ? error.message : '项目常驻记忆读取失败。');
         }
       } finally {
         if (!disposed) {
@@ -83,7 +107,7 @@ export function ProjectSettingsPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!projectId) {
+    if (!projectId || !project) {
       setSaveError('项目不存在。');
       return;
     }
@@ -98,12 +122,45 @@ export function ProjectSettingsPage() {
     setSaveError(null);
 
     try {
-      const updated = await window.projectApi.updateProjectSettings(projectId, form);
-      setProject(updated);
-      setForm(toFormState(updated));
-      setSaveSuccess('项目设置已保存。');
+      const residentMemoryInput = toResidentMemoryInput(form);
+      const hasNameChanged = form.name.trim() !== project.name;
+
+      if (hasNameChanged) {
+        const updatedProject = await window.projectApi.updateProjectSettings(projectId, form);
+        setProject(updatedProject);
+        setForm({
+          name: updatedProject.name,
+          oneLineDefinition: updatedProject.oneLineDefinition ?? '',
+          targetAudience: updatedProject.targetAudience ?? '',
+          coreValue: updatedProject.coreValue ?? '',
+          currentFocus: updatedProject.currentFocus ?? '',
+          forbiddenExpressions: updatedProject.forbiddenExpressions ?? '',
+          fixedConstraints: updatedProject.fixedConstraints ?? '',
+        });
+      } else {
+        const updatedMemory = await window.memoryApi.updateProjectResidentMemory(
+          projectId,
+          residentMemoryInput,
+        );
+        setForm((current) => ({ ...current, ...updatedMemory }));
+        setProject((current) =>
+          current
+            ? {
+                ...current,
+                oneLineDefinition: updatedMemory.oneLineDefinition,
+                targetAudience: updatedMemory.targetAudience,
+                coreValue: updatedMemory.coreValue,
+                currentFocus: updatedMemory.currentFocus,
+                forbiddenExpressions: updatedMemory.forbiddenExpressions,
+                fixedConstraints: updatedMemory.fixedConstraints,
+              }
+            : current,
+        );
+      }
+
+      setSaveSuccess('项目常驻记忆已保存。');
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : '项目设置保存失败。');
+      setSaveError(error instanceof Error ? error.message : '项目常驻记忆保存失败。');
     } finally {
       setIsSaving(false);
     }
@@ -112,8 +169,8 @@ export function ProjectSettingsPage() {
   if (isLoading) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 1-4</p>
-        <h2>正在读取项目设置...</h2>
+        <p className="eyebrow">Stage 3-1</p>
+        <h2>正在读取项目常驻记忆...</h2>
       </section>
     );
   }
@@ -121,8 +178,8 @@ export function ProjectSettingsPage() {
   if (loadError) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 1-4</p>
-        <h2>项目设置读取失败</h2>
+        <p className="eyebrow">Stage 3-1</p>
+        <h2>项目常驻记忆读取失败</h2>
         <p className="inline-error">{loadError}</p>
         <div className="page-actions">
           <Link className="ghost-button link-button" to="/">
@@ -136,7 +193,7 @@ export function ProjectSettingsPage() {
   if (!projectId || !project) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 1-4</p>
+        <p className="eyebrow">Stage 3-1</p>
         <h2>项目不存在</h2>
         <p className="muted-text">未找到项目，请返回项目主页或项目列表重新选择。</p>
         <div className="page-actions">
@@ -158,10 +215,10 @@ export function ProjectSettingsPage() {
       <div className="page-card page-stack">
         <div className="page-heading">
           <div>
-            <p className="eyebrow">Stage 1-4</p>
-            <h2>项目设置</h2>
+            <p className="eyebrow">Stage 3-1</p>
+            <h2>项目常驻记忆</h2>
             <p className="page-helper">
-              当前只维护项目基础信息与项目常驻记忆基础字段，不进入完整记忆系统。
+              项目设置页在阶段 3 正式承担项目常驻记忆承载页角色，只维护固定记忆字段，不进入长期记忆或 AI 处理。
             </p>
           </div>
           <div className="project-home-actions">
@@ -182,7 +239,7 @@ export function ProjectSettingsPage() {
               <p className="eyebrow">Project Basics</p>
               <h3>{project.name}</h3>
             </div>
-            <p className="page-helper">项目名称会同步影响项目主页与项目列表展示。</p>
+            <p className="page-helper">项目名称仍由当前页维护，但不扩展为额外记忆系统。</p>
           </div>
 
           <label className="form-field">
@@ -201,9 +258,9 @@ export function ProjectSettingsPage() {
           <div className="settings-section__header">
             <div>
               <p className="eyebrow">Resident Memory</p>
-              <h3>项目常驻记忆基础字段</h3>
+              <h3>项目常驻记忆字段</h3>
             </div>
-            <p className="page-helper">本轮只维护固定配置字段，不进入长期记忆系统。</p>
+            <p className="page-helper">这些字段在阶段 3 中被正式定义为项目常驻记忆。</p>
           </div>
 
           <div className="settings-grid">
@@ -284,7 +341,7 @@ export function ProjectSettingsPage() {
         <section className="page-card settings-section">
           <div className="settings-actions">
             <button className="primary-button" type="submit" disabled={isSaving}>
-              {isSaving ? '保存中...' : '保存项目设置'}
+              {isSaving ? '保存中...' : '保存项目常驻记忆'}
             </button>
             {saveSuccess ? <p className="success-text">{saveSuccess}</p> : null}
             {saveError ? <p className="inline-error">{saveError}</p> : null}

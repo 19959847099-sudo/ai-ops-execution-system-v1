@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { userResidentMemorySchema } from '../../shared/schema/memory';
 import {
   residentUserPreferencesSchema,
   systemSettingsSchema,
@@ -12,6 +13,10 @@ import type {
   SystemSettingKey,
   SystemSettings,
 } from '../../shared/types/settings';
+import type {
+  UpdateUserResidentMemoryInput,
+  UserResidentMemory,
+} from '../../shared/types/memory';
 import type { AppPaths } from '../../shared/types/app';
 
 type SettingsRow = { key: SystemSettingKey; value: string };
@@ -212,6 +217,10 @@ export class SettingsService {
     };
   }
 
+  getUserResidentMemory(): UserResidentMemory {
+    return userResidentMemorySchema.parse(this.getEditableResidentUserPreferences());
+  }
+
   updateResidentUserPreferences(
     input: EditableResidentUserPreferences,
   ): EditableResidentUserPreferences {
@@ -235,6 +244,11 @@ export class SettingsService {
 
     applyUpdate();
     return this.getEditableResidentUserPreferences();
+  }
+
+  updateUserResidentMemory(input: UpdateUserResidentMemoryInput): UserResidentMemory {
+    const updated = this.updateResidentUserPreferences(input);
+    return userResidentMemorySchema.parse(updated);
   }
 
   private normalizeSystemSettings(input: EditableSystemSettings): EditableSystemSettings {

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { AssetRecord } from '@shared/types/asset';
+import type { TaskPreparationMemorySnapshot } from '@shared/types/memory';
 import type { ProjectRecord } from '@shared/types/project';
 import type { TaskAssetRecord, TaskRecord } from '@shared/types/task';
 
@@ -21,6 +22,8 @@ export function TaskAssetsPage() {
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [assets, setAssets] = useState<AssetRecord[]>([]);
   const [taskAssets, setTaskAssets] = useState<TaskAssetRecord[]>([]);
+  const [memorySnapshot, setMemorySnapshot] = useState<TaskPreparationMemorySnapshot | null>(null);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [assetToAttach, setAssetToAttach] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
@@ -28,6 +31,7 @@ export function TaskAssetsPage() {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [isAttaching, setIsAttaching] = useState(false);
   const [removingAssetId, setRemovingAssetId] = useState<string | null>(null);
+  const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -78,6 +82,21 @@ export function TaskAssetsPage() {
     }
   };
 
+  const loadTaskPreparationMemory = async (taskId: string) => {
+    setIsLoadingMemory(true);
+    setMemoryError(null);
+
+    try {
+      const snapshot = await window.memoryApi.getTaskPreparationMemorySnapshot(taskId);
+      setMemorySnapshot(snapshot);
+    } catch (error) {
+      setMemorySnapshot(null);
+      setMemoryError(error instanceof Error ? error.message : '任务前常驻记忆读取失败。');
+    } finally {
+      setIsLoadingMemory(false);
+    }
+  };
+
   useEffect(() => {
     if (!projectId) {
       setIsLoading(false);
@@ -91,10 +110,13 @@ export function TaskAssetsPage() {
   useEffect(() => {
     if (!selectedTaskId) {
       setTaskAssets([]);
+      setMemorySnapshot(null);
+      setMemoryError(null);
       return;
     }
 
     void loadTaskAssets(selectedTaskId);
+    void loadTaskPreparationMemory(selectedTaskId);
   }, [selectedTaskId]);
 
   useEffect(() => {
@@ -144,6 +166,7 @@ export function TaskAssetsPage() {
       await window.taskApi.attachAsset(selectedTaskId, assetToAttach);
       setActionSuccess('素材已加入当前任务。');
       await loadTaskAssets(selectedTaskId);
+      await loadTaskPreparationMemory(selectedTaskId);
       if (projectId) {
         await loadBaseData(projectId);
       }
@@ -167,6 +190,7 @@ export function TaskAssetsPage() {
       await window.taskApi.removeAsset(selectedTaskId, assetId);
       setActionSuccess('素材已从当前任务移出。');
       await loadTaskAssets(selectedTaskId);
+      await loadTaskPreparationMemory(selectedTaskId);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : '素材移出任务失败。');
     } finally {
@@ -217,7 +241,7 @@ export function TaskAssetsPage() {
             <p className="eyebrow">Stage 2-2</p>
             <h2>任务内素材面板</h2>
             <p className="page-helper">
-              当前只承接任务素材挂接，不进入任务执行、结果输出或审核链路。
+              当前只承接任务素材挂接；阶段 3 额外补入“任务前可读取常驻记忆”的只读验证，不进入任务主链。
             </p>
           </div>
           <div className="project-home-actions">
@@ -239,7 +263,7 @@ export function TaskAssetsPage() {
                 <p className="eyebrow">Task Shell</p>
                 <h3>创建最小任务承接壳</h3>
               </div>
-              <p className="page-helper">该对象只用于素材挂接，不展开任务系统。</p>
+              <p className="page-helper">该对象只用于素材挂接与任务前读取验证，不展开任务系统。</p>
             </div>
 
             <form className="page-stack" onSubmit={handleCreateTask}>
@@ -273,7 +297,7 @@ export function TaskAssetsPage() {
             {tasks.length === 0 ? (
               <div className="empty-state">
                 <h3>当前没有任务承接壳</h3>
-                <p>先创建一个任务承接壳，再在右侧面板中挂接素材。</p>
+                <p>先创建一个任务承接壳，再在右侧面板中挂接素材并验证任务前可读取常驻记忆。</p>
               </div>
             ) : (
               <div className="task-list">
@@ -371,6 +395,97 @@ export function TaskAssetsPage() {
                   </div>
                 )}
               </>
+            )}
+          </section>
+
+          <section className="page-card page-stack">
+            <div className="settings-section__header">
+              <div>
+                <p className="eyebrow">Resident Memory Snapshot</p>
+                <h3>任务前可读取常驻记忆</h3>
+              </div>
+              <p className="page-helper">这里只证明任务开始前可以读取常驻记忆，不进入上下文组装或任务主链。</p>
+            </div>
+
+            {!selectedTask ? (
+              <p className="muted-text">请选择一个任务承接壳后查看任务前常驻记忆快照。</p>
+            ) : isLoadingMemory ? (
+              <p className="muted-text">正在读取任务前常驻记忆...</p>
+            ) : memoryError ? (
+              <p className="inline-error">{memoryError}</p>
+            ) : memorySnapshot ? (
+              <>
+                <div className="detail-grid">
+                  <div>
+                    <dt>任务标题</dt>
+                    <dd>{memorySnapshot.taskTitle}</dd>
+                  </div>
+                  <div>
+                    <dt>项目 ID</dt>
+                    <dd>{memorySnapshot.projectId}</dd>
+                  </div>
+                </div>
+
+                <div className="task-memory-grid">
+                  <section className="memory-card">
+                    <h4>项目常驻记忆</h4>
+                    <dl className="memory-list">
+                      <div>
+                        <dt>一句话定义</dt>
+                        <dd>{memorySnapshot.projectResidentMemory.oneLineDefinition || '暂无'}</dd>
+                      </div>
+                      <div>
+                        <dt>目标用户</dt>
+                        <dd>{memorySnapshot.projectResidentMemory.targetAudience || '暂无'}</dd>
+                      </div>
+                      <div>
+                        <dt>核心价值</dt>
+                        <dd>{memorySnapshot.projectResidentMemory.coreValue || '暂无'}</dd>
+                      </div>
+                      <div>
+                        <dt>当前重点</dt>
+                        <dd>{memorySnapshot.projectResidentMemory.currentFocus || '暂无'}</dd>
+                      </div>
+                      <div>
+                        <dt>禁止表达</dt>
+                        <dd>{memorySnapshot.projectResidentMemory.forbiddenExpressions || '暂无'}</dd>
+                      </div>
+                      <div>
+                        <dt>固定约束</dt>
+                        <dd>{memorySnapshot.projectResidentMemory.fixedConstraints || '暂无'}</dd>
+                      </div>
+                    </dl>
+                  </section>
+
+                  <section className="memory-card">
+                    <h4>用户偏好常驻记忆</h4>
+                    <dl className="memory-list">
+                      <div>
+                        <dt>产品偏好</dt>
+                        <dd>{memorySnapshot.userResidentMemory.productPreference || '暂无'}</dd>
+                      </div>
+                      <div>
+                        <dt>表达偏好</dt>
+                        <dd>{memorySnapshot.userResidentMemory.expressionPreference || '暂无'}</dd>
+                      </div>
+                      <div>
+                        <dt>设计偏好</dt>
+                        <dd>{memorySnapshot.userResidentMemory.designPreference || '暂无'}</dd>
+                      </div>
+                      <div>
+                        <dt>开发偏好</dt>
+                        <dd>{memorySnapshot.userResidentMemory.developmentPreference || '暂无'}</dd>
+                      </div>
+                      <div>
+                        <dt>成本偏好</dt>
+                        <dd>{memorySnapshot.userResidentMemory.costPreference || '暂无'}</dd>
+                      </div>
+                    </dl>
+                  </section>
+                </div>
+              </>
+            ) : (
+              <p className="muted-text">当前没有可显示的任务前常驻记忆快照。</p>
             )}
           </section>
         </section>

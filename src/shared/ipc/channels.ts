@@ -27,6 +27,14 @@ export const TASK_IPC_CHANNELS = {
   REMOVE_ASSET: 'task:remove-asset',
 } as const;
 
+export const MEMORY_IPC_CHANNELS = {
+  GET_PROJECT_RESIDENT_MEMORY: 'memory:get-project-resident-memory',
+  UPDATE_PROJECT_RESIDENT_MEMORY: 'memory:update-project-resident-memory',
+  GET_USER_RESIDENT_MEMORY: 'memory:get-user-resident-memory',
+  UPDATE_USER_RESIDENT_MEMORY: 'memory:update-user-resident-memory',
+  GET_TASK_PREPARATION_SNAPSHOT: 'memory:get-task-preparation-snapshot',
+} as const;
+
 export const SETTINGS_IPC_CHANNELS = {
   GET_SYSTEM_SETTINGS: 'settings:get-system-settings',
   UPDATE_SYSTEM_SETTINGS: 'settings:update-system-settings',

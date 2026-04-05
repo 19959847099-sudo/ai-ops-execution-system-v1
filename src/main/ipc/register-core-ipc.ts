@@ -2,12 +2,17 @@ import { dialog, ipcMain } from 'electron';
 import {
   ASSET_IPC_CHANNELS,
   CORE_IPC_CHANNELS,
+  MEMORY_IPC_CHANNELS,
   PROJECT_IPC_CHANNELS,
   SETTINGS_IPC_CHANNELS,
   TASK_IPC_CHANNELS,
 } from '../../shared/ipc/channels';
 import type { AssetListQuery, CreateTextAssetInput } from '../../shared/types/asset';
 import type { AppBootstrapSnapshot, AppPaths } from '../../shared/types/app';
+import type {
+  UpdateProjectResidentMemoryInput,
+  UpdateUserResidentMemoryInput,
+} from '../../shared/types/memory';
 import type {
   CreateProjectInput,
   ProjectListFilter,
@@ -24,6 +29,7 @@ import { DbService } from '../services/db.service';
 import { ProjectService } from '../services/project.service';
 import { TaskAssetService } from '../services/task-asset.service';
 import { TaskService } from '../services/task.service';
+import { MemoryService } from '../services/memory.service';
 
 type RegisterCoreIpcDeps = {
   dbService: DbService;
@@ -32,6 +38,7 @@ type RegisterCoreIpcDeps = {
   assetService: AssetService;
   taskService: TaskService;
   taskAssetService: TaskAssetService;
+  memoryService: MemoryService;
   paths: AppPaths;
   appVersion: string;
 };
@@ -43,6 +50,7 @@ export function registerCoreIpc({
   assetService,
   taskService,
   taskAssetService,
+  memoryService,
   paths,
   appVersion,
 }: RegisterCoreIpcDeps): void {
@@ -132,6 +140,25 @@ export function registerCoreIpc({
   );
   ipcMain.handle(TASK_IPC_CHANNELS.REMOVE_ASSET, (_event, taskId: string, assetId: string) =>
     taskAssetService.removeAsset(taskId, assetId),
+  );
+
+  ipcMain.handle(MEMORY_IPC_CHANNELS.GET_PROJECT_RESIDENT_MEMORY, (_event, projectId: string) =>
+    projectService.getProjectResidentMemory(projectId),
+  );
+  ipcMain.handle(
+    MEMORY_IPC_CHANNELS.UPDATE_PROJECT_RESIDENT_MEMORY,
+    (_event, projectId: string, input: UpdateProjectResidentMemoryInput) =>
+      projectService.updateProjectResidentMemory(projectId, input),
+  );
+  ipcMain.handle(MEMORY_IPC_CHANNELS.GET_USER_RESIDENT_MEMORY, () =>
+    settingsService.getUserResidentMemory(),
+  );
+  ipcMain.handle(
+    MEMORY_IPC_CHANNELS.UPDATE_USER_RESIDENT_MEMORY,
+    (_event, input: UpdateUserResidentMemoryInput) => settingsService.updateUserResidentMemory(input),
+  );
+  ipcMain.handle(MEMORY_IPC_CHANNELS.GET_TASK_PREPARATION_SNAPSHOT, (_event, taskId: string) =>
+    memoryService.getTaskPreparationMemorySnapshot(taskId),
   );
 
   ipcMain.handle(SETTINGS_IPC_CHANNELS.GET_SYSTEM_SETTINGS, () =>

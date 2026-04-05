@@ -2,11 +2,20 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   ASSET_IPC_CHANNELS,
   CORE_IPC_CHANNELS,
+  MEMORY_IPC_CHANNELS,
   PROJECT_IPC_CHANNELS,
   SETTINGS_IPC_CHANNELS,
   TASK_IPC_CHANNELS,
 } from '../shared/ipc/channels';
 import type { AppBootstrapSnapshot } from '../shared/types/app';
+import type {
+  MemoryBridgeApi,
+  ProjectResidentMemory,
+  TaskPreparationMemorySnapshot,
+  UpdateProjectResidentMemoryInput,
+  UpdateUserResidentMemoryInput,
+  UserResidentMemory,
+} from '../shared/types/memory';
 import type {
   AssetBridgeApi,
   AssetLibrarySummary,
@@ -97,6 +106,27 @@ const taskApi: TaskBridgeApi = {
   },
 };
 
+const memoryApi: MemoryBridgeApi = {
+  getProjectResidentMemory(projectId: string): Promise<ProjectResidentMemory> {
+    return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.GET_PROJECT_RESIDENT_MEMORY, projectId);
+  },
+  updateProjectResidentMemory(
+    projectId: string,
+    input: UpdateProjectResidentMemoryInput,
+  ): Promise<ProjectResidentMemory> {
+    return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.UPDATE_PROJECT_RESIDENT_MEMORY, projectId, input);
+  },
+  getUserResidentMemory(): Promise<UserResidentMemory> {
+    return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.GET_USER_RESIDENT_MEMORY);
+  },
+  updateUserResidentMemory(input: UpdateUserResidentMemoryInput): Promise<UserResidentMemory> {
+    return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.UPDATE_USER_RESIDENT_MEMORY, input);
+  },
+  getTaskPreparationMemorySnapshot(taskId: string): Promise<TaskPreparationMemorySnapshot> {
+    return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.GET_TASK_PREPARATION_SNAPSHOT, taskId);
+  },
+};
+
 const settingsApi: SettingsBridgeApi = {
   getSystemSettings(): Promise<EditableSystemSettings> {
     return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.GET_SYSTEM_SETTINGS);
@@ -121,4 +151,5 @@ contextBridge.exposeInMainWorld('coreApi', coreApi);
 contextBridge.exposeInMainWorld('projectApi', projectApi);
 contextBridge.exposeInMainWorld('assetApi', assetApi);
 contextBridge.exposeInMainWorld('taskApi', taskApi);
+contextBridge.exposeInMainWorld('memoryApi', memoryApi);
 contextBridge.exposeInMainWorld('settingsApi', settingsApi);
