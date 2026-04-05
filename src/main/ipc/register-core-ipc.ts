@@ -1,9 +1,12 @@
-import { ipcMain } from 'electron';
+import { dialog, ipcMain } from 'electron';
 import {
+  ASSET_IPC_CHANNELS,
   CORE_IPC_CHANNELS,
   PROJECT_IPC_CHANNELS,
   SETTINGS_IPC_CHANNELS,
+  TASK_IPC_CHANNELS,
 } from '../../shared/ipc/channels';
+import type { AssetListQuery, CreateTextAssetInput } from '../../shared/types/asset';
 import type { AppBootstrapSnapshot, AppPaths } from '../../shared/types/app';
 import type {
   CreateProjectInput,
@@ -14,14 +17,21 @@ import type {
   EditableResidentUserPreferences,
   EditableSystemSettings,
 } from '../../shared/types/settings';
+import type { CreateTaskShellInput } from '../../shared/types/task';
+import { AssetService } from '../services/asset.service';
 import { SettingsService } from '../services/settings.service';
 import { DbService } from '../services/db.service';
 import { ProjectService } from '../services/project.service';
+import { TaskAssetService } from '../services/task-asset.service';
+import { TaskService } from '../services/task.service';
 
 type RegisterCoreIpcDeps = {
   dbService: DbService;
   settingsService: SettingsService;
   projectService: ProjectService;
+  assetService: AssetService;
+  taskService: TaskService;
+  taskAssetService: TaskAssetService;
   paths: AppPaths;
   appVersion: string;
 };
@@ -30,6 +40,9 @@ export function registerCoreIpc({
   dbService,
   settingsService,
   projectService,
+  assetService,
+  taskService,
+  taskAssetService,
   paths,
   appVersion,
 }: RegisterCoreIpcDeps): void {
@@ -66,6 +79,61 @@ export function registerCoreIpc({
     (_event, projectId: string, input: UpdateProjectSettingsInput) =>
       projectService.updateProjectSettings(projectId, input),
   );
+
+  ipcMain.handle(ASSET_IPC_CHANNELS.IMPORT_ASSETS, async (_event, projectId: string) => {
+    const result = await dialog.showOpenDialog({
+      title: '导入素材',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        {
+          name: '图片与视频',
+          extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'mp4', 'mov', 'm4v', 'webm'],
+        },
+      ],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return [];
+    }
+
+    return assetService.importFiles(projectId, result.filePaths);
+  });
+  ipcMain.handle(
+    ASSET_IPC_CHANNELS.CREATE_TEXT_ASSET,
+    (_event, projectId: string, input: CreateTextAssetInput) =>
+      assetService.createTextAsset(projectId, input),
+  );
+  ipcMain.handle(
+    ASSET_IPC_CHANNELS.LIST_ASSETS,
+    (_event, projectId: string, query?: Partial<AssetListQuery>) =>
+      assetService.listAssets(projectId, query),
+  );
+  ipcMain.handle(ASSET_IPC_CHANNELS.GET_ASSET_BY_ID, (_event, assetId: string) =>
+    assetService.getAssetById(assetId),
+  );
+  ipcMain.handle(ASSET_IPC_CHANNELS.GET_LIBRARY_SUMMARY, (_event, projectId: string) =>
+    assetService.getAssetLibrarySummary(projectId),
+  );
+
+  ipcMain.handle(TASK_IPC_CHANNELS.LIST_TASKS, (_event, projectId: string) =>
+    taskService.listTasks(projectId),
+  );
+  ipcMain.handle(TASK_IPC_CHANNELS.CREATE_TASK, (_event, projectId: string, input: CreateTaskShellInput) =>
+    taskService.createTask(projectId, input),
+  );
+  ipcMain.handle(TASK_IPC_CHANNELS.GET_TASK_BY_ID, (_event, taskId: string) =>
+    taskService.getTaskById(taskId),
+  );
+  ipcMain.handle(TASK_IPC_CHANNELS.LIST_TASK_ASSETS, (_event, taskId: string) =>
+    taskAssetService.listTaskAssets(taskId),
+  );
+  ipcMain.handle(TASK_IPC_CHANNELS.ATTACH_ASSET, (_event, taskId: string, assetId: string) =>
+    taskAssetService.attachAsset(taskId, assetId),
+  );
+  ipcMain.handle(TASK_IPC_CHANNELS.REMOVE_ASSET, (_event, taskId: string, assetId: string) =>
+    taskAssetService.removeAsset(taskId, assetId),
+  );
+
   ipcMain.handle(SETTINGS_IPC_CHANNELS.GET_SYSTEM_SETTINGS, () =>
     settingsService.getEditableSystemSettings(),
   );

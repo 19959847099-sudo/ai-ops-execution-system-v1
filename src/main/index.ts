@@ -6,6 +6,10 @@ import { FsService } from './services/fs.service';
 import { DbService } from './services/db.service';
 import { SettingsService } from './services/settings.service';
 import { ProjectService } from './services/project.service';
+import { AssetStorageService } from './services/asset-storage.service';
+import { AssetService } from './services/asset.service';
+import { TaskService } from './services/task.service';
+import { TaskAssetService } from './services/task-asset.service';
 import { registerCoreIpc } from './ipc/register-core-ipc';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,12 +31,19 @@ async function bootstrapApplication(): Promise<void> {
   const db = dbService.initialize();
   const settingsService = new SettingsService(db, paths);
   const projectService = new ProjectService(db);
+  const assetStorageService = new AssetStorageService(paths, fsService);
+  const assetService = new AssetService(db, projectService, assetStorageService);
+  const taskService = new TaskService(db, projectService);
+  const taskAssetService = new TaskAssetService(db, taskService, assetService);
   settingsService.ensureDefaults();
 
   registerCoreIpc({
     dbService,
     settingsService,
     projectService,
+    assetService,
+    taskService,
+    taskAssetService,
     paths,
     appVersion: app.getVersion(),
   });

@@ -1,10 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
+  ASSET_IPC_CHANNELS,
   CORE_IPC_CHANNELS,
   PROJECT_IPC_CHANNELS,
   SETTINGS_IPC_CHANNELS,
+  TASK_IPC_CHANNELS,
 } from '../shared/ipc/channels';
 import type { AppBootstrapSnapshot } from '../shared/types/app';
+import type {
+  AssetBridgeApi,
+  AssetLibrarySummary,
+  AssetListQuery,
+  AssetRecord,
+  CreateTextAssetInput,
+} from '../shared/types/asset';
 import type {
   CreateProjectInput,
   ProjectBridgeApi,
@@ -18,6 +27,12 @@ import type {
   SettingsBridgeApi,
   SystemApiTestResult,
 } from '../shared/types/settings';
+import type {
+  CreateTaskShellInput,
+  TaskAssetRecord,
+  TaskBridgeApi,
+  TaskRecord,
+} from '../shared/types/task';
 
 const coreApi = {
   getBootstrapSnapshot(): Promise<AppBootstrapSnapshot> {
@@ -43,6 +58,45 @@ const projectApi: ProjectBridgeApi = {
   },
 };
 
+const assetApi: AssetBridgeApi = {
+  importAssets(projectId: string): Promise<AssetRecord[]> {
+    return ipcRenderer.invoke(ASSET_IPC_CHANNELS.IMPORT_ASSETS, projectId);
+  },
+  createTextAsset(projectId: string, input: CreateTextAssetInput): Promise<AssetRecord> {
+    return ipcRenderer.invoke(ASSET_IPC_CHANNELS.CREATE_TEXT_ASSET, projectId, input);
+  },
+  listAssets(projectId: string, query?: Partial<AssetListQuery>): Promise<AssetRecord[]> {
+    return ipcRenderer.invoke(ASSET_IPC_CHANNELS.LIST_ASSETS, projectId, query);
+  },
+  getAssetById(assetId: string): Promise<AssetRecord | null> {
+    return ipcRenderer.invoke(ASSET_IPC_CHANNELS.GET_ASSET_BY_ID, assetId);
+  },
+  getAssetLibrarySummary(projectId: string): Promise<AssetLibrarySummary> {
+    return ipcRenderer.invoke(ASSET_IPC_CHANNELS.GET_LIBRARY_SUMMARY, projectId);
+  },
+};
+
+const taskApi: TaskBridgeApi = {
+  listTasks(projectId: string): Promise<TaskRecord[]> {
+    return ipcRenderer.invoke(TASK_IPC_CHANNELS.LIST_TASKS, projectId);
+  },
+  createTask(projectId: string, input: CreateTaskShellInput): Promise<TaskRecord> {
+    return ipcRenderer.invoke(TASK_IPC_CHANNELS.CREATE_TASK, projectId, input);
+  },
+  getTaskById(taskId: string): Promise<TaskRecord | null> {
+    return ipcRenderer.invoke(TASK_IPC_CHANNELS.GET_TASK_BY_ID, taskId);
+  },
+  listTaskAssets(taskId: string): Promise<TaskAssetRecord[]> {
+    return ipcRenderer.invoke(TASK_IPC_CHANNELS.LIST_TASK_ASSETS, taskId);
+  },
+  attachAsset(taskId: string, assetId: string): Promise<TaskAssetRecord> {
+    return ipcRenderer.invoke(TASK_IPC_CHANNELS.ATTACH_ASSET, taskId, assetId);
+  },
+  removeAsset(taskId: string, assetId: string): Promise<void> {
+    return ipcRenderer.invoke(TASK_IPC_CHANNELS.REMOVE_ASSET, taskId, assetId);
+  },
+};
+
 const settingsApi: SettingsBridgeApi = {
   getSystemSettings(): Promise<EditableSystemSettings> {
     return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.GET_SYSTEM_SETTINGS);
@@ -65,4 +119,6 @@ const settingsApi: SettingsBridgeApi = {
 
 contextBridge.exposeInMainWorld('coreApi', coreApi);
 contextBridge.exposeInMainWorld('projectApi', projectApi);
+contextBridge.exposeInMainWorld('assetApi', assetApi);
+contextBridge.exposeInMainWorld('taskApi', taskApi);
 contextBridge.exposeInMainWorld('settingsApi', settingsApi);
