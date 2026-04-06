@@ -1,24 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import {
-  articleTaskCandidateSchema,
-  createTaskInputSchema,
-  taskCandidateSchema,
-  videoTaskCandidateSchema,
-} from '../../shared/schema/task';
+import { createTaskInputSchema } from '../../shared/schema/task';
 import type {
-  ArticleTaskCandidateRecord,
   CreateTaskInput,
   TaskCandidateRecord,
   TaskForm,
   TaskRecord,
   TaskStatus,
-  VideoTaskCandidateRecord,
 } from '../../shared/types/task';
+import type { RegenerateFromReviewInput, ResultRecord } from '../../shared/types/result';
 import { AssetService } from './asset.service';
 import { AiService } from './ai.service';
 import { MemoryService } from './memory.service';
 import { ProjectService } from './project.service';
+import { ResultService } from './result.service';
 
 type TaskRow = {
   id: string;
@@ -32,18 +27,6 @@ type TaskRow = {
   updated_at: string;
 };
 
-type TaskCandidateRow = {
-  id: string;
-  task_id: string;
-  candidate_type: 'article' | 'video';
-  sequence: number;
-  title: string;
-  body: string | null;
-  structured_description: string | null;
-  segments_json: string | null;
-  generated_at: string;
-};
-
 export class TaskService {
   constructor(
     private readonly db: Database.Database,
@@ -51,6 +34,7 @@ export class TaskService {
     private readonly memoryService: MemoryService,
     private readonly assetService: AssetService,
     private readonly aiService: AiService,
+    private readonly resultService: ResultService,
   ) {}
 
   listTasks(projectId: string): TaskRecord[] {
@@ -153,51 +137,62 @@ export class TaskService {
   }
 
   listTaskCandidates(taskId: string): TaskCandidateRecord[] {
-    this.requireTask(taskId);
-    const rows = this.db
-      .prepare(
-        `
-          SELECT
-            id,
-            task_id,
-            candidate_type,
-            sequence,
-            title,
-            body,
-            structured_description,
-            segments_json,
-            generated_at
-          FROM task_candidates
-          WHERE task_id = ?
-          ORDER BY sequence ASC, generated_at ASC
-        `,
-      )
-      .all(taskId) as TaskCandidateRow[];
-
-    return rows.map((row) => this.mapCandidateRow(row));
+    return this.resultService.toTaskCandidates(this.resultService.listTaskResults(taskId));
   }
 
   async generateTaskCandidates(taskId: string): Promise<TaskCandidateRecord[]> {
+    const results = await this.generateTaskResults(taskId);
+    return this.resultService.toTaskCandidates(results);
+  }
+
+  async generateTaskResults(taskId: string): Promise<ResultRecord[]> {
     const task = this.requireTask(taskId);
 
     if (task.status === 'generating') {
       throw new Error('当前任务正在生成候选，请稍后再看结果。');
     }
 
-    if (task.status === 'failed') {
-      throw new Error('当前任务生成已失败，阶段 4 不提供完整重试闭环。');
+    const existingPending = this.resultService
+      .listTaskResults(taskId)
+      .filter((result) => result.status === 'pending_review');
+
+    if (existingPending.length > 0) {
+      return existingPending;
     }
 
-    const existingCandidates = this.listTaskCandidates(taskId);
-    if (existingCandidates.length > 0) {
-      return existingCandidates;
+    return this.runGeneration(task, null, '');
+  }
+
+  async regenerateTaskResults(
+    taskId: string,
+    sourceResultId: string,
+    input: RegenerateFromReviewInput,
+  ): Promise<ResultRecord[]> {
+    const task = this.requireTask(taskId);
+    const sourceResult = this.resultService.requireResult(sourceResultId);
+
+    if (sourceResult.taskId !== taskId) {
+      throw new Error('结果与任务不匹配。');
     }
 
-    this.updateTaskStatus(taskId, 'generating');
+    if (sourceResult.status === 'approved') {
+      throw new Error('已通过结果不能再作为打回重生成的来源。');
+    }
+
+    this.resultService.markResultRegenerated(taskId, sourceResultId, input);
+    return this.runGeneration(task, sourceResultId, input.note.trim());
+  }
+
+  private async runGeneration(
+    task: TaskRecord,
+    sourceResultId: string | null,
+    reviewInstruction: string,
+  ): Promise<ResultRecord[]> {
+    this.updateTaskStatus(task.id, 'generating');
 
     try {
-      const memorySnapshot = this.memoryService.getTaskPreparationMemorySnapshot(taskId);
-      const assets = this.assetService.listAssetsForTask(taskId);
+      const memorySnapshot = this.memoryService.getTaskPreparationMemorySnapshot(task.id);
+      const assets = this.assetService.listAssetsForTask(task.id);
       const generatedCandidates = await this.aiService.generateTaskCandidates({
         taskId: task.id,
         title: task.title,
@@ -206,125 +201,26 @@ export class TaskService {
         supplementalRequirements: task.supplementalRequirements,
         memorySnapshot,
         assets,
+        reviewInstruction,
       });
 
-      const storedCandidates = this.replaceCandidates(task, generatedCandidates);
-      this.updateTaskStatus(taskId, 'ready');
-      return storedCandidates;
-    } catch (error) {
-      this.updateTaskStatus(taskId, 'failed');
-      throw error;
-    }
-  }
-
-  private replaceCandidates(
-    task: TaskRecord,
-    generatedCandidates: Array<
-      Pick<ArticleTaskCandidateRecord, 'candidateType' | 'title' | 'body'> |
-      Pick<VideoTaskCandidateRecord, 'candidateType' | 'title' | 'structuredDescription' | 'segments'>
-    >,
-  ): TaskCandidateRecord[] {
-    const now = new Date().toISOString();
-    const insert = this.db.prepare(`
-      INSERT INTO task_candidates (
-        id,
-        task_id,
-        candidate_type,
-        sequence,
-        title,
-        body,
-        structured_description,
-        segments_json,
-        generated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const createdIds: string[] = [];
-    const applyInsert = this.db.transaction(() => {
-      this.db.prepare('DELETE FROM task_candidates WHERE task_id = ?').run(task.id);
-
-      generatedCandidates.forEach((candidate, index) => {
-        const id = randomUUID();
-        createdIds.push(id);
-
-        if (candidate.candidateType === 'article') {
-          const normalized = articleTaskCandidateSchema.parse({
-            id,
-            taskId: task.id,
-            sequence: index + 1,
-            title: candidate.title,
-            body: candidate.body,
-            generatedAt: now,
-            candidateType: 'article',
-          });
-
-          insert.run(
-            normalized.id,
-            normalized.taskId,
-            normalized.candidateType,
-            normalized.sequence,
-            normalized.title,
-            normalized.body,
-            null,
-            null,
-            normalized.generatedAt,
-          );
-          return;
-        }
-
-        const normalized = videoTaskCandidateSchema.parse({
-          id,
+      const results = this.resultService.replaceGeneratedResults(
+        task,
+        generatedCandidates.map((candidate, index) => ({
+          id: `${task.id}-${Date.now()}-${index}`,
           taskId: task.id,
           sequence: index + 1,
-          title: candidate.title,
-          structuredDescription: candidate.structuredDescription,
-          segments: candidate.segments,
-          generatedAt: now,
-          candidateType: 'video',
-        });
-
-        insert.run(
-          normalized.id,
-          normalized.taskId,
-          normalized.candidateType,
-          normalized.sequence,
-          normalized.title,
-          null,
-          normalized.structuredDescription,
-          JSON.stringify(normalized.segments),
-          normalized.generatedAt,
-        );
-      });
-    });
-
-    applyInsert();
-    return createdIds
-      .map((candidateId) => this.getTaskCandidateById(candidateId))
-      .filter((candidate): candidate is TaskCandidateRecord => candidate !== null);
-  }
-
-  private getTaskCandidateById(candidateId: string): TaskCandidateRecord | null {
-    const row = this.db
-      .prepare(
-        `
-          SELECT
-            id,
-            task_id,
-            candidate_type,
-            sequence,
-            title,
-            body,
-            structured_description,
-            segments_json,
-            generated_at
-          FROM task_candidates
-          WHERE id = ?
-        `,
-      )
-      .get(candidateId) as TaskCandidateRow | undefined;
-
-    return row ? this.mapCandidateRow(row) : null;
+          generatedAt: new Date().toISOString(),
+          ...candidate,
+        })) as TaskCandidateRecord[],
+        sourceResultId,
+      );
+      this.updateTaskStatus(task.id, 'ready');
+      return results;
+    } catch (error) {
+      this.updateTaskStatus(task.id, 'failed');
+      throw error;
+    }
   }
 
   private updateTaskStatus(taskId: string, status: TaskStatus): void {
@@ -359,30 +255,5 @@ export class TaskService {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
-  }
-
-  private mapCandidateRow(row: TaskCandidateRow): TaskCandidateRecord {
-    if (row.candidate_type === 'article') {
-      return taskCandidateSchema.parse({
-        id: row.id,
-        taskId: row.task_id,
-        candidateType: 'article',
-        sequence: row.sequence,
-        title: row.title,
-        body: row.body ?? '',
-        generatedAt: row.generated_at,
-      });
-    }
-
-    return taskCandidateSchema.parse({
-      id: row.id,
-      taskId: row.task_id,
-      candidateType: 'video',
-      sequence: row.sequence,
-      title: row.title,
-      structuredDescription: row.structured_description ?? '',
-      segments: JSON.parse(row.segments_json ?? '[]') as unknown[],
-      generatedAt: row.generated_at,
-    });
   }
 }

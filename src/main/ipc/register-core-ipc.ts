@@ -4,6 +4,7 @@ import {
   CORE_IPC_CHANNELS,
   MEMORY_IPC_CHANNELS,
   PROJECT_IPC_CHANNELS,
+  RESULT_IPC_CHANNELS,
   SETTINGS_IPC_CHANNELS,
   TASK_IPC_CHANNELS,
 } from '../../shared/ipc/channels';
@@ -23,6 +24,7 @@ import type {
   EditableSystemSettings,
 } from '../../shared/types/settings';
 import type { CreateTaskInput } from '../../shared/types/task';
+import type { RegenerateFromReviewInput } from '../../shared/types/result';
 import { AssetService } from '../services/asset.service';
 import { SettingsService } from '../services/settings.service';
 import { DbService } from '../services/db.service';
@@ -30,6 +32,7 @@ import { ProjectService } from '../services/project.service';
 import { TaskAssetService } from '../services/task-asset.service';
 import { TaskService } from '../services/task.service';
 import { MemoryService } from '../services/memory.service';
+import { ResultService } from '../services/result.service';
 
 type RegisterCoreIpcDeps = {
   dbService: DbService;
@@ -39,6 +42,7 @@ type RegisterCoreIpcDeps = {
   taskService: TaskService;
   taskAssetService: TaskAssetService;
   memoryService: MemoryService;
+  resultService: ResultService;
   paths: AppPaths;
   appVersion: string;
 };
@@ -51,6 +55,7 @@ export function registerCoreIpc({
   taskService,
   taskAssetService,
   memoryService,
+  resultService,
   paths,
   appVersion,
 }: RegisterCoreIpcDeps): void {
@@ -165,6 +170,27 @@ export function registerCoreIpc({
   );
   ipcMain.handle(MEMORY_IPC_CHANNELS.GET_TASK_PREPARATION_SNAPSHOT, (_event, taskId: string) =>
     memoryService.getTaskPreparationMemorySnapshot(taskId),
+  );
+
+  ipcMain.handle(RESULT_IPC_CHANNELS.LIST_TASK_RESULTS, (_event, taskId: string) =>
+    resultService.listTaskResults(taskId),
+  );
+  ipcMain.handle(RESULT_IPC_CHANNELS.LIST_PROJECT_RESULTS, (_event, projectId: string) =>
+    resultService.listProjectResults(projectId),
+  );
+  ipcMain.handle(RESULT_IPC_CHANNELS.LIST_TASK_REVIEW_ACTIONS, (_event, taskId: string) =>
+    resultService.listTaskReviewActions(taskId),
+  );
+  ipcMain.handle(RESULT_IPC_CHANNELS.APPROVE_RESULT, (_event, taskId: string, resultId: string, note?: string) =>
+    resultService.approveResult(taskId, resultId, note),
+  );
+  ipcMain.handle(
+    RESULT_IPC_CHANNELS.REGENERATE_RESULT,
+    (_event, taskId: string, resultId: string, input: RegenerateFromReviewInput) =>
+      taskService.regenerateTaskResults(taskId, resultId, input),
+  );
+  ipcMain.handle(RESULT_IPC_CHANNELS.SAVE_RESULT_AS_TEXT_ASSET, (_event, resultId: string) =>
+    resultService.saveResultAsTextAsset(resultId),
   );
 
   ipcMain.handle(SETTINGS_IPC_CHANNELS.GET_SYSTEM_SETTINGS, () =>

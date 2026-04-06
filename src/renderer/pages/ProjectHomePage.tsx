@@ -189,6 +189,9 @@ export function ProjectHomePage() {
             <Link className="ghost-button link-button" to={`/projects/${project.id}/settings`}>
               项目设置
             </Link>
+            <Link className="ghost-button link-button" to={`/projects/${project.id}/results`}>
+              缁撴灉鍥炵湅
+            </Link>
             <span className={project.status === 'active' ? 'status-chip is-active' : 'status-chip'}>
               {formatProjectStatus(project.status)}
             </span>

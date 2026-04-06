@@ -4,6 +4,7 @@ import {
   CORE_IPC_CHANNELS,
   MEMORY_IPC_CHANNELS,
   PROJECT_IPC_CHANNELS,
+  RESULT_IPC_CHANNELS,
   SETTINGS_IPC_CHANNELS,
   TASK_IPC_CHANNELS,
 } from '../shared/ipc/channels';
@@ -36,6 +37,12 @@ import type {
   SettingsBridgeApi,
   SystemApiTestResult,
 } from '../shared/types/settings';
+import type {
+  RegenerateFromReviewInput,
+  ResultBridgeApi,
+  ResultRecord,
+  ResultReviewActionRecord,
+} from '../shared/types/result';
 import type {
   CreateTaskInput,
   TaskCandidateRecord,
@@ -154,9 +161,35 @@ const settingsApi: SettingsBridgeApi = {
   },
 };
 
+const resultApi: ResultBridgeApi = {
+  listTaskResults(taskId: string): Promise<ResultRecord[]> {
+    return ipcRenderer.invoke(RESULT_IPC_CHANNELS.LIST_TASK_RESULTS, taskId);
+  },
+  listProjectResults(projectId: string): Promise<ResultRecord[]> {
+    return ipcRenderer.invoke(RESULT_IPC_CHANNELS.LIST_PROJECT_RESULTS, projectId);
+  },
+  listTaskReviewActions(taskId: string): Promise<ResultReviewActionRecord[]> {
+    return ipcRenderer.invoke(RESULT_IPC_CHANNELS.LIST_TASK_REVIEW_ACTIONS, taskId);
+  },
+  approveResult(taskId: string, resultId: string, note?: string): Promise<ResultRecord> {
+    return ipcRenderer.invoke(RESULT_IPC_CHANNELS.APPROVE_RESULT, taskId, resultId, note);
+  },
+  regenerateResult(
+    taskId: string,
+    resultId: string,
+    input: RegenerateFromReviewInput,
+  ): Promise<ResultRecord[]> {
+    return ipcRenderer.invoke(RESULT_IPC_CHANNELS.REGENERATE_RESULT, taskId, resultId, input);
+  },
+  saveResultAsTextAsset(resultId: string): Promise<AssetRecord> {
+    return ipcRenderer.invoke(RESULT_IPC_CHANNELS.SAVE_RESULT_AS_TEXT_ASSET, resultId);
+  },
+};
+
 contextBridge.exposeInMainWorld('coreApi', coreApi);
 contextBridge.exposeInMainWorld('projectApi', projectApi);
 contextBridge.exposeInMainWorld('assetApi', assetApi);
 contextBridge.exposeInMainWorld('taskApi', taskApi);
 contextBridge.exposeInMainWorld('memoryApi', memoryApi);
+contextBridge.exposeInMainWorld('resultApi', resultApi);
 contextBridge.exposeInMainWorld('settingsApi', settingsApi);

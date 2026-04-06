@@ -37,6 +37,15 @@ export const MEMORY_IPC_CHANNELS = {
   GET_TASK_PREPARATION_SNAPSHOT: 'memory:get-task-preparation-snapshot',
 } as const;
 
+export const RESULT_IPC_CHANNELS = {
+  LIST_TASK_RESULTS: 'result:list-task-results',
+  LIST_PROJECT_RESULTS: 'result:list-project-results',
+  LIST_TASK_REVIEW_ACTIONS: 'result:list-task-review-actions',
+  APPROVE_RESULT: 'result:approve',
+  REGENERATE_RESULT: 'result:regenerate',
+  SAVE_RESULT_AS_TEXT_ASSET: 'result:save-as-text-asset',
+} as const;
+
 export const SETTINGS_IPC_CHANNELS = {
   GET_SYSTEM_SETTINGS: 'settings:get-system-settings',
   UPDATE_SYSTEM_SETTINGS: 'settings:update-system-settings',

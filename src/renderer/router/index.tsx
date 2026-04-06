@@ -7,6 +7,7 @@ import { ApiSettingsPage } from '../pages/ApiSettingsPage';
 import { UserPreferencesPage } from '../pages/UserPreferencesPage';
 import { AssetLibraryPage } from '../pages/AssetLibraryPage';
 import { TaskAssetsPage } from '../pages/TaskAssetsPage';
+import { ProjectResultsPage } from '../pages/ProjectResultsPage';
 
 export function AppRouter() {
   return (
@@ -16,6 +17,7 @@ export function AppRouter() {
         <Route path="/projects/:projectId" element={<ProjectHomePage />} />
         <Route path="/projects/:projectId/assets" element={<AssetLibraryPage />} />
         <Route path="/projects/:projectId/tasks" element={<TaskAssetsPage />} />
+        <Route path="/projects/:projectId/results" element={<ProjectResultsPage />} />
         <Route path="/projects/:projectId/settings" element={<ProjectSettingsPage />} />
         <Route path="/settings/api" element={<ApiSettingsPage />} />
         <Route path="/settings/preferences" element={<UserPreferencesPage />} />

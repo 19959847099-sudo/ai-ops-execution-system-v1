@@ -17,6 +17,7 @@ type TaskGenerationContext = {
   supplementalRequirements: string;
   memorySnapshot: TaskPreparationMemorySnapshot;
   assets: AssetRecord[];
+  reviewInstruction?: string;
 };
 
 type GeneratedArticleCandidate = Pick<ArticleTaskCandidateRecord, 'candidateType' | 'title' | 'body'>;
@@ -188,6 +189,9 @@ export class AiService {
       '四、当前任务挂接素材摘要',
       ...assetLines,
       '',
+      context.reviewInstruction
+        ? ['五、审核意见', `- 请优先吸收以下一句修改意见：${context.reviewInstruction}`, ''].join('\n')
+        : '',
       context.taskForm === 'article'
         ? '请返回 3 个图文候选，标题风格要清晰区分，正文直接给出可阅读成稿。'
         : '请返回 3 个视频候选，必须是结构化视频候选包，每个候选都要给出结构化说明与分镜或段落级结构。',
