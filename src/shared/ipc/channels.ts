@@ -22,6 +22,8 @@ export const TASK_IPC_CHANNELS = {
   LIST_TASKS: 'task:list',
   CREATE_TASK: 'task:create',
   GET_TASK_BY_ID: 'task:get-by-id',
+  LIST_TASK_CANDIDATES: 'task:list-candidates',
+  GENERATE_TASK_CANDIDATES: 'task:generate-candidates',
   LIST_TASK_ASSETS: 'task:list-assets',
   ATTACH_ASSET: 'task:attach-asset',
   REMOVE_ASSET: 'task:remove-asset',

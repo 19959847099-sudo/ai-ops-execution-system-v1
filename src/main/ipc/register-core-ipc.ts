@@ -22,7 +22,7 @@ import type {
   EditableResidentUserPreferences,
   EditableSystemSettings,
 } from '../../shared/types/settings';
-import type { CreateTaskShellInput } from '../../shared/types/task';
+import type { CreateTaskInput } from '../../shared/types/task';
 import { AssetService } from '../services/asset.service';
 import { SettingsService } from '../services/settings.service';
 import { DbService } from '../services/db.service';
@@ -126,11 +126,17 @@ export function registerCoreIpc({
   ipcMain.handle(TASK_IPC_CHANNELS.LIST_TASKS, (_event, projectId: string) =>
     taskService.listTasks(projectId),
   );
-  ipcMain.handle(TASK_IPC_CHANNELS.CREATE_TASK, (_event, projectId: string, input: CreateTaskShellInput) =>
+  ipcMain.handle(TASK_IPC_CHANNELS.CREATE_TASK, (_event, projectId: string, input: CreateTaskInput) =>
     taskService.createTask(projectId, input),
   );
   ipcMain.handle(TASK_IPC_CHANNELS.GET_TASK_BY_ID, (_event, taskId: string) =>
     taskService.getTaskById(taskId),
+  );
+  ipcMain.handle(TASK_IPC_CHANNELS.LIST_TASK_CANDIDATES, (_event, taskId: string) =>
+    taskService.listTaskCandidates(taskId),
+  );
+  ipcMain.handle(TASK_IPC_CHANNELS.GENERATE_TASK_CANDIDATES, (_event, taskId: string) =>
+    taskService.generateTaskCandidates(taskId),
   );
   ipcMain.handle(TASK_IPC_CHANNELS.LIST_TASK_ASSETS, (_event, taskId: string) =>
     taskAssetService.listTaskAssets(taskId),

@@ -128,6 +128,36 @@ export class AssetService {
     return row ? this.mapRow(row) : null;
   }
 
+  listAssetsForTask(taskId: string): AssetRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            a.id,
+            a.project_id,
+            a.file_name,
+            a.display_name,
+            a.asset_type,
+            a.mime_type,
+            a.file_extension,
+            a.file_size,
+            a.relative_path,
+            a.text_content,
+            a.status,
+            a.last_used_at,
+            a.created_at,
+            a.updated_at
+          FROM task_assets ta
+          INNER JOIN assets a ON a.id = ta.asset_id
+          WHERE ta.task_id = ?
+          ORDER BY ta.sort_order ASC, ta.added_at ASC
+        `,
+      )
+      .all(taskId) as AssetRow[];
+
+    return rows.map((row) => this.mapRow(row));
+  }
+
   importFiles(projectId: string, filePaths: string[]): AssetRecord[] {
     this.ensureProjectExists(projectId);
     if (filePaths.length === 0) {
@@ -364,4 +394,3 @@ export class AssetService {
     };
   }
 }
-

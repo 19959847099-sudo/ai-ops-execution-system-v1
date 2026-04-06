@@ -37,7 +37,8 @@ import type {
   SystemApiTestResult,
 } from '../shared/types/settings';
 import type {
-  CreateTaskShellInput,
+  CreateTaskInput,
+  TaskCandidateRecord,
   TaskAssetRecord,
   TaskBridgeApi,
   TaskRecord,
@@ -89,11 +90,17 @@ const taskApi: TaskBridgeApi = {
   listTasks(projectId: string): Promise<TaskRecord[]> {
     return ipcRenderer.invoke(TASK_IPC_CHANNELS.LIST_TASKS, projectId);
   },
-  createTask(projectId: string, input: CreateTaskShellInput): Promise<TaskRecord> {
+  createTask(projectId: string, input: CreateTaskInput): Promise<TaskRecord> {
     return ipcRenderer.invoke(TASK_IPC_CHANNELS.CREATE_TASK, projectId, input);
   },
   getTaskById(taskId: string): Promise<TaskRecord | null> {
     return ipcRenderer.invoke(TASK_IPC_CHANNELS.GET_TASK_BY_ID, taskId);
+  },
+  listTaskCandidates(taskId: string): Promise<TaskCandidateRecord[]> {
+    return ipcRenderer.invoke(TASK_IPC_CHANNELS.LIST_TASK_CANDIDATES, taskId);
+  },
+  generateTaskCandidates(taskId: string): Promise<TaskCandidateRecord[]> {
+    return ipcRenderer.invoke(TASK_IPC_CHANNELS.GENERATE_TASK_CANDIDATES, taskId);
   },
   listTaskAssets(taskId: string): Promise<TaskAssetRecord[]> {
     return ipcRenderer.invoke(TASK_IPC_CHANNELS.LIST_TASK_ASSETS, taskId);

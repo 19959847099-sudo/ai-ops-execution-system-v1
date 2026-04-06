@@ -1,28 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { AssetLibrarySummary } from '@shared/types/asset';
 import type { ProjectRecord } from '@shared/types/project';
-
-const PLACEHOLDER_SECTIONS = [
-  {
-    title: '最近任务',
-    description: '后续将在这里挂接主链任务列表与最近执行记录。',
-    emptyTitle: '最近任务尚未接入',
-    emptyMessage: '当前阶段只保留任务承接壳，不进入真实任务主链数据。',
-  },
-  {
-    title: '最近结果',
-    description: '后续将在这里挂接最新产出、候选结果与处理状态。',
-    emptyTitle: '最近结果尚未接入',
-    emptyMessage: '当前阶段不读取真实结果数据，也不进入审核链路。',
-  },
-  {
-    title: '记忆摘要',
-    description: '后续将在这里挂接常驻记忆与项目上下文摘要。',
-    emptyTitle: '记忆摘要尚未接入',
-    emptyMessage: '当前阶段不读取真实记忆数据，也不接入回流逻辑。',
-  },
-] as const;
+import type { CreateTaskInput, TaskForm, TaskRecord, TaskStatus } from '@shared/types/task';
 
 const EMPTY_SUMMARY: AssetLibrarySummary = {
   totalCount: 0,
@@ -30,6 +10,13 @@ const EMPTY_SUMMARY: AssetLibrarySummary = {
   videoCount: 0,
   textCount: 0,
   lastImportedAt: null,
+};
+
+const EMPTY_TASK_FORM: CreateTaskInput = {
+  title: '',
+  goal: '',
+  taskForm: 'article',
+  supplementalRequirements: '',
 };
 
 function formatDate(value: string | null): string {
@@ -47,12 +34,39 @@ function formatProjectStatus(status: ProjectRecord['status']): string {
   return status === 'active' ? '进行中' : '已归档';
 }
 
+function formatTaskStatus(status: TaskStatus): string {
+  if (status === 'generating') {
+    return '生成中';
+  }
+
+  if (status === 'ready') {
+    return '已产出候选';
+  }
+
+  if (status === 'failed') {
+    return '生成失败';
+  }
+
+  return '待生成';
+}
+
+function formatTaskForm(taskForm: TaskForm): string {
+  return taskForm === 'article' ? '图文' : '视频';
+}
+
 export function ProjectHomePage() {
+  const navigate = useNavigate();
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [assetSummary, setAssetSummary] = useState<AssetLibrarySummary>(EMPTY_SUMMARY);
+  const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [form, setForm] = useState<CreateTaskInput>(EMPTY_TASK_FORM);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const recentTasks = useMemo(() => tasks.slice(0, 3), [tasks]);
 
   useEffect(() => {
     let disposed = false;
@@ -69,18 +83,20 @@ export function ProjectHomePage() {
       setError(null);
 
       try {
-        const [projectRecord, summary] = await Promise.all([
+        const [projectRecord, summary, taskRecords] = await Promise.all([
           window.projectApi.getProjectById(projectId),
           window.assetApi.getAssetLibrarySummary(projectId),
+          window.taskApi.listTasks(projectId),
         ]);
 
         if (!disposed) {
           setProject(projectRecord);
           setAssetSummary(summary);
+          setTasks(taskRecords);
         }
       } catch (nextError) {
         if (!disposed) {
-          setError(nextError instanceof Error ? nextError.message : '项目读取失败。');
+          setError(nextError instanceof Error ? nextError.message : '项目主页读取失败。');
         }
       } finally {
         if (!disposed) {
@@ -96,14 +112,34 @@ export function ProjectHomePage() {
     };
   }, [projectId]);
 
-  const handleTaskEntryClick = () => {
-    window.alert('当前未接入任务创建主链，请使用阶段 2 的任务素材面板。');
+  const updateField = <K extends keyof CreateTaskInput>(field: K, value: CreateTaskInput[K]) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    setCreateError(null);
+  };
+
+  const handleCreateTask = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!projectId) {
+      return;
+    }
+
+    setIsCreatingTask(true);
+    setCreateError(null);
+
+    try {
+      const created = await window.taskApi.createTask(projectId, form);
+      navigate(`/projects/${projectId}/tasks?taskId=${created.id}`);
+    } catch (nextError) {
+      setCreateError(nextError instanceof Error ? nextError.message : '任务发起失败。');
+    } finally {
+      setIsCreatingTask(false);
+    }
   };
 
   if (isLoading) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 1-3</p>
+        <p className="eyebrow">Stage 4-1</p>
         <h2>正在读取项目主页...</h2>
       </section>
     );
@@ -112,7 +148,7 @@ export function ProjectHomePage() {
   if (error) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 1-3</p>
+        <p className="eyebrow">Stage 4-1</p>
         <h2>项目读取失败</h2>
         <p className="inline-error">{error}</p>
         <Link className="ghost-button link-button" to="/">
@@ -125,7 +161,7 @@ export function ProjectHomePage() {
   if (!projectId || !project) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 1-3</p>
+        <p className="eyebrow">Stage 4-1</p>
         <h2>项目不存在</h2>
         <p>未找到项目，请返回项目列表重新选择。</p>
         <Link className="ghost-button link-button" to="/">
@@ -140,10 +176,10 @@ export function ProjectHomePage() {
       <div className="page-card project-home-hero">
         <div className="page-heading">
           <div>
-            <p className="eyebrow">Stage 1-3</p>
+            <p className="eyebrow">Stage 4-1</p>
             <h2>{project.name}</h2>
             <p className="page-helper">
-              当前项目主页继续作为入口壳，阶段 2 已把素材概览接成素材库入口。
+              项目主页在阶段 4 正式承担主链入口，只负责发起任务并进入候选生成承接，不扩展成结果层或审核页。
             </p>
           </div>
           <div className="project-home-actions">
@@ -185,18 +221,118 @@ export function ProjectHomePage() {
         <div className="feature-card__header">
           <div>
             <p className="eyebrow">Task Entry</p>
-            <h3>新建任务入口</h3>
+            <h3>发起主链任务</h3>
           </div>
-          <button type="button" className="primary-button" onClick={handleTaskEntryClick}>
-            新建任务
-          </button>
+          <Link className="ghost-button link-button" to={`/projects/${project.id}/tasks`}>
+            进入任务承接页
+          </Link>
         </div>
+
         <p className="page-helper">
-          当前仍不进入任务创建主链；阶段 2 只提供任务素材面板最小承接能力。
+          任务发起卡固定只收集主题、目标、形式与补充要求；生成候选后仍停留在当前任务维度，不进入项目级结果层。
         </p>
+
+        <form className="page-stack task-launch-form" onSubmit={handleCreateTask}>
+          <div className="settings-grid">
+            <label className="form-field">
+              <span>主题</span>
+              <input
+                value={form.title}
+                onChange={(event) => updateField('title', event.target.value)}
+                placeholder="例如：私域增长复盘"
+                maxLength={120}
+                disabled={isCreatingTask}
+              />
+            </label>
+
+            <label className="form-field">
+              <span>目标</span>
+              <input
+                value={form.goal}
+                onChange={(event) => updateField('goal', event.target.value)}
+                placeholder="例如：生成 3 个可直接评估的候选"
+                maxLength={240}
+                disabled={isCreatingTask}
+              />
+            </label>
+
+            <label className="form-field">
+              <span>形式</span>
+              <select
+                className="form-select"
+                value={form.taskForm}
+                onChange={(event) => updateField('taskForm', event.target.value as TaskForm)}
+                disabled={isCreatingTask}
+              >
+                <option value="article">图文</option>
+                <option value="video">视频</option>
+              </select>
+            </label>
+
+            <label className="form-field settings-grid__full">
+              <span>补充要求</span>
+              <textarea
+                className="form-textarea"
+                value={form.supplementalRequirements}
+                onChange={(event) => updateField('supplementalRequirements', event.target.value)}
+                placeholder="例如：避免夸张表达，突出转化动作。"
+                maxLength={1000}
+                disabled={isCreatingTask}
+              />
+            </label>
+          </div>
+
+          {createError ? <p className="inline-error">{createError}</p> : null}
+
+          <div className="settings-actions">
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={isCreatingTask || !form.title.trim() || !form.goal.trim()}
+            >
+              {isCreatingTask ? '任务发起中...' : '发起任务并进入候选生成'}
+            </button>
+          </div>
+        </form>
       </div>
 
       <div className="project-home-grid">
+        <section className="page-card feature-card">
+          <div className="feature-card__header">
+            <div>
+              <p className="eyebrow">Task Overview</p>
+              <h3>最近任务</h3>
+            </div>
+            <Link className="ghost-button link-button" to={`/projects/${project.id}/tasks`}>
+              打开任务承接页
+            </Link>
+          </div>
+          <p className="page-helper">阶段 4 只承接任务发起与候选生成，不延展为项目级结果列表。</p>
+
+          {recentTasks.length === 0 ? (
+            <div className="empty-state feature-empty-state">
+              <h4>当前还没有任务</h4>
+              <p>先在上方任务发起卡创建任务，再进入任务承接页生成候选。</p>
+            </div>
+          ) : (
+            <div className="task-list">
+              {recentTasks.map((task) => (
+                <Link
+                  key={task.id}
+                  className="task-item"
+                  to={`/projects/${project.id}/tasks?taskId=${task.id}`}
+                >
+                  <strong>{task.title}</strong>
+                  <p className="muted-text">目标：{task.goal}</p>
+                  <p className="muted-text">
+                    {formatTaskForm(task.taskForm)} · {formatTaskStatus(task.status)}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+
         <section className="page-card feature-card">
           <div className="feature-card__header">
             <div>
@@ -207,7 +343,7 @@ export function ProjectHomePage() {
               进入素材库
             </Link>
           </div>
-          <p className="page-helper">阶段 2 已接入本地素材库 MVP，可导入、查看、搜索、筛选并加入任务。</p>
+          <p className="page-helper">阶段 4 直接复用阶段 2 的素材库与任务素材挂接结果作为主链输入。</p>
           <div className="asset-summary-grid">
             <article className="summary-card">
               <span className="summary-card__label">总数</span>
@@ -232,26 +368,29 @@ export function ProjectHomePage() {
               打开素材库
             </Link>
             <Link className="ghost-button link-button" to={`/projects/${project.id}/tasks`}>
-              任务素材面板
+              进入任务承接页
             </Link>
           </div>
         </section>
 
-        {PLACEHOLDER_SECTIONS.map((section) => (
-          <section key={section.title} className="page-card feature-card">
-            <div className="feature-card__header">
-              <div>
-                <p className="eyebrow">Placeholder</p>
-                <h3>{section.title}</h3>
-              </div>
+        <section className="page-card feature-card">
+          <div className="feature-card__header">
+            <div>
+              <p className="eyebrow">Stage 3</p>
+              <h3>常驻记忆已就绪</h3>
             </div>
-            <p className="page-helper">{section.description}</p>
-            <div className="empty-state feature-empty-state">
-              <h4>{section.emptyTitle}</h4>
-              <p>{section.emptyMessage}</p>
-            </div>
-          </section>
-        ))}
+            <Link className="ghost-button link-button" to={`/projects/${project.id}/settings`}>
+              查看项目常驻记忆
+            </Link>
+          </div>
+          <p className="page-helper">
+            阶段 4 会优先复用阶段 3 已形成的任务前常驻记忆快照，不在主链里重新分散读取并重复拼接记忆。
+          </p>
+          <div className="empty-state feature-empty-state">
+            <h4>当前只做读取前置</h4>
+            <p>项目常驻记忆和用户偏好常驻记忆将在任务承接页中被统一读取，但不进入临时记忆、回流或压缩逻辑。</p>
+          </div>
+        </section>
       </div>
     </section>
   );

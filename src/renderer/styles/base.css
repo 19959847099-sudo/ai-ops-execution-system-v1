@@ -640,6 +640,45 @@ a {
   word-break: break-word;
 }
 
+.task-launch-form {
+  gap: 18px;
+}
+
+.task-candidate-list,
+.candidate-segment-list {
+  display: grid;
+  gap: 16px;
+}
+
+.candidate-card,
+.candidate-segment {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid #d6deea;
+  background: #fbfdff;
+}
+
+.candidate-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.candidate-card__header h4 {
+  margin: 0;
+}
+
+.candidate-body,
+.candidate-segment p {
+  margin: 0;
+  color: #162030;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 960px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -673,7 +712,8 @@ a {
 
   .settings-section__header,
   .settings-actions,
-  .task-asset-item {
+  .task-asset-item,
+  .candidate-card__header {
     flex-direction: column;
     align-items: flex-start;
   }

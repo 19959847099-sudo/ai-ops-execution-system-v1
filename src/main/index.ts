@@ -8,6 +8,7 @@ import { SettingsService } from './services/settings.service';
 import { ProjectService } from './services/project.service';
 import { AssetStorageService } from './services/asset-storage.service';
 import { AssetService } from './services/asset.service';
+import { AiService } from './services/ai.service';
 import { TaskService } from './services/task.service';
 import { TaskAssetService } from './services/task-asset.service';
 import { MemoryService } from './services/memory.service';
@@ -34,10 +35,11 @@ async function bootstrapApplication(): Promise<void> {
   const projectService = new ProjectService(db);
   const assetStorageService = new AssetStorageService(paths, fsService);
   const assetService = new AssetService(db, projectService, assetStorageService);
-  const taskService = new TaskService(db, projectService);
-  const taskAssetService = new TaskAssetService(db, taskService, assetService);
-  const memoryService = new MemoryService(projectService, settingsService, taskService);
   settingsService.ensureDefaults();
+  const aiService = new AiService(settingsService);
+  const memoryService = new MemoryService(db, projectService, settingsService);
+  const taskService = new TaskService(db, projectService, memoryService, assetService, aiService);
+  const taskAssetService = new TaskAssetService(db, taskService, assetService);
 
   registerCoreIpc({
     dbService,
