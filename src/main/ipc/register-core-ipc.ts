@@ -143,6 +143,9 @@ export function registerCoreIpc({
   ipcMain.handle(TASK_IPC_CHANNELS.GENERATE_TASK_CANDIDATES, (_event, taskId: string) =>
     taskService.generateTaskCandidates(taskId),
   );
+  ipcMain.handle(TASK_IPC_CHANNELS.RETRY_TASK_CLOSURE, (_event, taskId: string) =>
+    taskService.retryTaskClosure(taskId),
+  );
   ipcMain.handle(TASK_IPC_CHANNELS.LIST_TASK_ASSETS, (_event, taskId: string) =>
     taskAssetService.listTaskAssets(taskId),
   );
@@ -171,6 +174,9 @@ export function registerCoreIpc({
   ipcMain.handle(MEMORY_IPC_CHANNELS.GET_TASK_PREPARATION_SNAPSHOT, (_event, taskId: string) =>
     memoryService.getTaskPreparationMemorySnapshot(taskId),
   );
+  ipcMain.handle(MEMORY_IPC_CHANNELS.LIST_RECENT_TEMPORARY_MEMORIES, (_event, projectId: string) =>
+    memoryService.listRecentTemporaryMemories(projectId),
+  );
 
   ipcMain.handle(RESULT_IPC_CHANNELS.LIST_TASK_RESULTS, (_event, taskId: string) =>
     resultService.listTaskResults(taskId),
@@ -181,8 +187,14 @@ export function registerCoreIpc({
   ipcMain.handle(RESULT_IPC_CHANNELS.LIST_TASK_REVIEW_ACTIONS, (_event, taskId: string) =>
     resultService.listTaskReviewActions(taskId),
   );
+  ipcMain.handle(RESULT_IPC_CHANNELS.LIST_TASK_AUTO_FEEDBACKS, (_event, taskId: string) =>
+    resultService.listTaskAutoFeedbacks(taskId),
+  );
+  ipcMain.handle(RESULT_IPC_CHANNELS.LIST_PROJECT_AUTO_FEEDBACKS, (_event, projectId: string) =>
+    resultService.listProjectAutoFeedbacks(projectId),
+  );
   ipcMain.handle(RESULT_IPC_CHANNELS.APPROVE_RESULT, (_event, taskId: string, resultId: string, note?: string) =>
-    resultService.approveResult(taskId, resultId, note),
+    taskService.approveResult(taskId, resultId, note),
   );
   ipcMain.handle(
     RESULT_IPC_CHANNELS.REGENERATE_RESULT,

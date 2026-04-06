@@ -3,6 +3,8 @@ import { taskCandidateSegmentSchema, taskFormSchema } from './task';
 
 export const resultStatusSchema = z.enum(['pending_review', 'approved', 'rejected']);
 export const reviewActionTypeSchema = z.enum(['approved', 'regenerated', 'saved_as_asset']);
+export const resultAutoFeedbackTypeSchema = z.enum(['title', 'cover_text']);
+export const resultAutoFeedbackStatusSchema = z.enum(['completed', 'failed']);
 
 const baseResultSchema = z.object({
   id: z.string(),
@@ -11,6 +13,7 @@ const baseResultSchema = z.object({
   sourceResultId: z.string().nullable(),
   resultType: taskFormSchema,
   title: z.string().trim().min(1).max(200),
+  coverText: z.string().trim().max(120).default(''),
   status: resultStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -40,6 +43,20 @@ export const resultReviewActionSchema = z.object({
   note: z.string(),
   relatedAssetId: z.string().nullable(),
   createdAt: z.string(),
+});
+
+export const resultAutoFeedbackRecordSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  resultId: z.string(),
+  feedbackType: resultAutoFeedbackTypeSchema,
+  feedbackText: z.string(),
+  assetId: z.string().nullable(),
+  status: resultAutoFeedbackStatusSchema,
+  errorMessage: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
 });
 
 export const regenerateFromReviewInputSchema = z.object({

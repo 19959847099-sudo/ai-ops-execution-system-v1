@@ -12,6 +12,7 @@ import type { AppBootstrapSnapshot } from '../shared/types/app';
 import type {
   MemoryBridgeApi,
   ProjectResidentMemory,
+  RecentTemporaryMemoryRecord,
   TaskPreparationMemorySnapshot,
   UpdateProjectResidentMemoryInput,
   UpdateUserResidentMemoryInput,
@@ -39,6 +40,7 @@ import type {
 } from '../shared/types/settings';
 import type {
   RegenerateFromReviewInput,
+  ResultAutoFeedbackRecord,
   ResultBridgeApi,
   ResultRecord,
   ResultReviewActionRecord,
@@ -109,6 +111,9 @@ const taskApi: TaskBridgeApi = {
   generateTaskCandidates(taskId: string): Promise<TaskCandidateRecord[]> {
     return ipcRenderer.invoke(TASK_IPC_CHANNELS.GENERATE_TASK_CANDIDATES, taskId);
   },
+  retryTaskClosure(taskId: string): Promise<TaskRecord> {
+    return ipcRenderer.invoke(TASK_IPC_CHANNELS.RETRY_TASK_CLOSURE, taskId);
+  },
   listTaskAssets(taskId: string): Promise<TaskAssetRecord[]> {
     return ipcRenderer.invoke(TASK_IPC_CHANNELS.LIST_TASK_ASSETS, taskId);
   },
@@ -138,6 +143,9 @@ const memoryApi: MemoryBridgeApi = {
   },
   getTaskPreparationMemorySnapshot(taskId: string): Promise<TaskPreparationMemorySnapshot> {
     return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.GET_TASK_PREPARATION_SNAPSHOT, taskId);
+  },
+  listRecentTemporaryMemories(projectId: string): Promise<RecentTemporaryMemoryRecord[]> {
+    return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.LIST_RECENT_TEMPORARY_MEMORIES, projectId);
   },
 };
 
@@ -170,6 +178,12 @@ const resultApi: ResultBridgeApi = {
   },
   listTaskReviewActions(taskId: string): Promise<ResultReviewActionRecord[]> {
     return ipcRenderer.invoke(RESULT_IPC_CHANNELS.LIST_TASK_REVIEW_ACTIONS, taskId);
+  },
+  listTaskAutoFeedbacks(taskId: string): Promise<ResultAutoFeedbackRecord[]> {
+    return ipcRenderer.invoke(RESULT_IPC_CHANNELS.LIST_TASK_AUTO_FEEDBACKS, taskId);
+  },
+  listProjectAutoFeedbacks(projectId: string): Promise<ResultAutoFeedbackRecord[]> {
+    return ipcRenderer.invoke(RESULT_IPC_CHANNELS.LIST_PROJECT_AUTO_FEEDBACKS, projectId);
   },
   approveResult(taskId: string, resultId: string, note?: string): Promise<ResultRecord> {
     return ipcRenderer.invoke(RESULT_IPC_CHANNELS.APPROVE_RESULT, taskId, resultId, note);

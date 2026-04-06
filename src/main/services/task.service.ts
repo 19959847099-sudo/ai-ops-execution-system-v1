@@ -5,6 +5,7 @@ import type {
   CreateTaskInput,
   TaskCandidateRecord,
   TaskForm,
+  TaskLoopStatus,
   TaskRecord,
   TaskStatus,
 } from '../../shared/types/task';
@@ -23,6 +24,9 @@ type TaskRow = {
   task_form: TaskForm;
   supplemental_requirements: string;
   status: TaskStatus;
+  loop_status: TaskLoopStatus;
+  last_failure_at: string | null;
+  last_failure_reason: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -50,6 +54,9 @@ export class TaskService {
             task_form,
             supplemental_requirements,
             status,
+            loop_status,
+            last_failure_at,
+            last_failure_reason,
             created_at,
             updated_at
           FROM tasks
@@ -79,10 +86,13 @@ export class TaskService {
             task_form,
             supplemental_requirements,
             status,
+            loop_status,
+            last_failure_at,
+            last_failure_reason,
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, 'draft', 'pending', NULL, NULL, ?, ?)
         `,
       )
       .run(
@@ -96,12 +106,7 @@ export class TaskService {
         now,
       );
 
-    const task = this.getTaskById(id);
-    if (!task) {
-      throw new Error('任务创建后读取失败。');
-    }
-
-    return task;
+    return this.requireTask(id);
   }
 
   getTaskById(taskId: string): TaskRecord | null {
@@ -116,6 +121,9 @@ export class TaskService {
             task_form,
             supplemental_requirements,
             status,
+            loop_status,
+            last_failure_at,
+            last_failure_reason,
             created_at,
             updated_at
           FROM tasks
@@ -163,6 +171,15 @@ export class TaskService {
     return this.runGeneration(task, null, '');
   }
 
+  async approveResult(taskId: string, resultId: string, note = ''): Promise<ResultRecord> {
+    const task = this.requireTask(taskId);
+    const approvedResult = this.resultService.approveResult(taskId, resultId, note);
+
+    this.updateTaskLoopStatus(task.id, 'pending', null);
+    await this.applyApprovedResultClosure(task, approvedResult);
+    return this.resultService.requireResult(approvedResult.id);
+  }
+
   async regenerateTaskResults(
     taskId: string,
     sourceResultId: string,
@@ -180,7 +197,23 @@ export class TaskService {
     }
 
     this.resultService.markResultRegenerated(taskId, sourceResultId, input);
+    this.updateTaskLoopStatus(task.id, 'pending', null);
     return this.runGeneration(task, sourceResultId, input.note.trim());
+  }
+
+  async retryTaskClosure(taskId: string): Promise<TaskRecord> {
+    const task = this.requireTask(taskId);
+    const approvedResult = this.resultService
+      .listTaskResults(taskId)
+      .find((result) => result.status === 'approved');
+
+    if (!approvedResult) {
+      throw new Error('当前任务还没有已通过结果，无法重试闭环。');
+    }
+
+    this.updateTaskLoopStatus(task.id, 'pending', null);
+    await this.applyApprovedResultClosure(task, approvedResult);
+    return this.requireTask(taskId);
   }
 
   private async runGeneration(
@@ -188,7 +221,7 @@ export class TaskService {
     sourceResultId: string | null,
     reviewInstruction: string,
   ): Promise<ResultRecord[]> {
-    this.updateTaskStatus(task.id, 'generating');
+    this.updateTaskGenerationState(task.id, 'generating', null);
 
     try {
       const memorySnapshot = this.memoryService.getTaskPreparationMemorySnapshot(task.id);
@@ -204,6 +237,10 @@ export class TaskService {
         reviewInstruction,
       });
 
+      if (generatedCandidates.length === 0) {
+        throw new Error('当前没有可承接的候选结果。');
+      }
+
       const results = this.resultService.replaceGeneratedResults(
         task,
         generatedCandidates.map((candidate, index) => ({
@@ -215,26 +252,142 @@ export class TaskService {
         })) as TaskCandidateRecord[],
         sourceResultId,
       );
-      this.updateTaskStatus(task.id, 'ready');
+
+      this.updateTaskGenerationState(task.id, 'ready', null);
       return results;
     } catch (error) {
-      this.updateTaskStatus(task.id, 'failed');
+      const message = error instanceof Error ? error.message : '候选生成失败。';
+      this.updateTaskGenerationState(task.id, 'failed', message);
       throw error;
     }
   }
 
-  private updateTaskStatus(taskId: string, status: TaskStatus): void {
+  private async applyApprovedResultClosure(task: TaskRecord, approvedResult: ResultRecord): Promise<void> {
+    const errors: string[] = [];
+
+    const feedbackPlans = [
+      {
+        feedbackType: 'title' as const,
+        text: approvedResult.title.trim(),
+      },
+      {
+        feedbackType: 'cover_text' as const,
+        text: approvedResult.coverText.trim(),
+      },
+    ];
+
+    for (const plan of feedbackPlans) {
+      const existing = this.resultService.getAutoFeedbackByResultAndType(approvedResult.id, plan.feedbackType);
+      if (existing?.status === 'completed' && existing.assetId) {
+        continue;
+      }
+
+      if (!plan.text) {
+        this.resultService.upsertAutoFeedbackRecord({
+          projectId: approvedResult.projectId,
+          taskId: approvedResult.taskId,
+          resultId: approvedResult.id,
+          feedbackType: plan.feedbackType,
+          feedbackText: '',
+          assetId: null,
+          status: 'failed',
+          errorMessage: '当前通过结果没有合法的回流文本来源。',
+        });
+        errors.push(`${plan.feedbackType === 'title' ? '标题' : '封面文案'}自动回流失败`);
+        continue;
+      }
+
+      try {
+        const asset = this.assetService.createAutoFeedbackAsset(
+          approvedResult.projectId,
+          plan.feedbackType,
+          approvedResult.title,
+          plan.text,
+        );
+
+        this.resultService.upsertAutoFeedbackRecord({
+          projectId: approvedResult.projectId,
+          taskId: approvedResult.taskId,
+          resultId: approvedResult.id,
+          feedbackType: plan.feedbackType,
+          feedbackText: plan.text,
+          assetId: asset.id,
+          status: 'completed',
+          errorMessage: '',
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '自动回流失败。';
+        this.resultService.upsertAutoFeedbackRecord({
+          projectId: approvedResult.projectId,
+          taskId: approvedResult.taskId,
+          resultId: approvedResult.id,
+          feedbackType: plan.feedbackType,
+          feedbackText: plan.text,
+          assetId: null,
+          status: 'failed',
+          errorMessage: message,
+        });
+        errors.push(message);
+      }
+    }
+
+    try {
+      this.memoryService.updateRecentTemporaryMemories(task, approvedResult);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '最近临时记忆更新失败。';
+      errors.push(message);
+    }
+
+    if (errors.length > 0) {
+      this.updateTaskLoopStatus(task.id, 'failed', errors[0]);
+      return;
+    }
+
+    this.updateTaskLoopStatus(task.id, 'completed', null);
+  }
+
+  private updateTaskGenerationState(taskId: string, status: TaskStatus, failureMessage: string | null): void {
     const now = new Date().toISOString();
     this.db
       .prepare(
         `
           UPDATE tasks
           SET status = ?,
+              last_failure_at = ?,
+              last_failure_reason = ?,
               updated_at = ?
           WHERE id = ?
         `,
       )
-      .run(status, now, taskId);
+      .run(
+        status,
+        failureMessage ? now : null,
+        failureMessage,
+        now,
+        taskId,
+      );
+  }
+
+  private updateTaskLoopStatus(taskId: string, loopStatus: TaskLoopStatus, failureMessage: string | null): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `
+          UPDATE tasks
+          SET loop_status = ?,
+              last_failure_at = ?,
+              last_failure_reason = ?,
+              updated_at = ?
+          WHERE id = ?
+        `,
+      )
+      .run(
+        loopStatus,
+        failureMessage ? now : null,
+        failureMessage,
+        now,
+        taskId,
+      );
   }
 
   private ensureProjectExists(projectId: string): void {
@@ -252,6 +405,9 @@ export class TaskService {
       taskForm: row.task_form,
       supplementalRequirements: row.supplemental_requirements,
       status: row.status,
+      loopStatus: row.loop_status,
+      lastFailureAt: row.last_failure_at,
+      lastFailureReason: row.last_failure_reason,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

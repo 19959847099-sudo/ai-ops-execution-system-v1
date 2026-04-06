@@ -3,8 +3,12 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { AssetRecord } from '@shared/types/asset';
 import type { TaskPreparationMemorySnapshot } from '@shared/types/memory';
 import type { ProjectRecord } from '@shared/types/project';
-import type { ResultRecord, ResultReviewActionRecord } from '@shared/types/result';
-import type { TaskAssetRecord, TaskRecord, TaskStatus } from '@shared/types/task';
+import type {
+  ResultAutoFeedbackRecord,
+  ResultRecord,
+  ResultReviewActionRecord,
+} from '@shared/types/result';
+import type { TaskAssetRecord, TaskLoopStatus, TaskRecord, TaskStatus } from '@shared/types/task';
 
 function formatDate(value: string | null): string {
   if (!value) return '暂无';
@@ -16,6 +20,12 @@ function formatTaskStatus(status: TaskStatus): string {
   if (status === 'ready') return '已产出候选';
   if (status === 'failed') return '生成失败';
   return '待生成';
+}
+
+function formatLoopStatus(status: TaskLoopStatus): string {
+  if (status === 'completed') return '闭环已完成';
+  if (status === 'failed') return '闭环失败';
+  return '闭环待完成';
 }
 
 function formatTaskForm(taskForm: TaskRecord['taskForm']): string {
@@ -34,8 +44,22 @@ function formatReviewAction(action: ResultReviewActionRecord['actionType']): str
   return '打回并再生成';
 }
 
+function formatFeedbackType(type: ResultAutoFeedbackRecord['feedbackType']): string {
+  return type === 'title' ? '标题自动回流' : '封面文案自动回流';
+}
+
+function formatFeedbackStatus(status: ResultAutoFeedbackRecord['status']): string {
+  return status === 'completed' ? '已完成' : '失败';
+}
+
 function renderResultPreview(result: ResultRecord): string {
   return result.resultType === 'article' ? result.body : result.structuredDescription;
+}
+
+function getStatusChipClass(status: TaskLoopStatus | ResultAutoFeedbackRecord['status']): string {
+  if (status === 'completed') return 'status-chip is-active';
+  if (status === 'failed') return 'status-chip is-danger';
+  return 'status-chip';
 }
 
 export function TaskAssetsPage() {
@@ -47,6 +71,7 @@ export function TaskAssetsPage() {
   const [taskAssets, setTaskAssets] = useState<TaskAssetRecord[]>([]);
   const [results, setResults] = useState<ResultRecord[]>([]);
   const [reviewActions, setReviewActions] = useState<ResultReviewActionRecord[]>([]);
+  const [autoFeedbacks, setAutoFeedbacks] = useState<ResultAutoFeedbackRecord[]>([]);
   const [memorySnapshot, setMemorySnapshot] = useState<TaskPreparationMemorySnapshot | null>(null);
   const [memoryError, setMemoryError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -56,6 +81,7 @@ export function TaskAssetsPage() {
   const [isLoadingTaskData, setIsLoadingTaskData] = useState(false);
   const [isAttaching, setIsAttaching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isRetryingClosure, setIsRetryingClosure] = useState(false);
   const [processingResultId, setProcessingResultId] = useState<string | null>(null);
   const [removingAssetId, setRemovingAssetId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -71,8 +97,20 @@ export function TaskAssetsPage() {
   const selectedTask = useMemo(() => tasks.find((task) => task.id === selectedTaskId) ?? null, [selectedTaskId, tasks]);
   const approvedResult = useMemo(() => results.find((result) => result.status === 'approved') ?? null, [results]);
   const reviewableResults = useMemo(() => results.filter((result) => result.status !== 'approved'), [results]);
+  const currentTaskRecentMemories = useMemo(
+    () =>
+      (memorySnapshot?.recentTemporaryMemories ?? [])
+        .filter((memory) => memory.taskId === selectedTaskId)
+        .slice(0, 4),
+    [memorySnapshot, selectedTaskId],
+  );
+  const autoFeedbackMap = useMemo(
+    () => new Map(autoFeedbacks.map((feedback) => [feedback.feedbackType, feedback])),
+    [autoFeedbacks],
+  );
   const canEditAssets = selectedTask?.status === 'draft' && results.length === 0;
   const canGenerate = Boolean(selectedTask) && results.length === 0 && selectedTask?.status !== 'generating';
+  const canRetryClosure = Boolean(selectedTask && approvedResult && selectedTask.loopStatus === 'failed');
 
   const syncSelectedTask = (taskRecords: TaskRecord[], preferredTaskId?: string | null) => {
     setSelectedTaskId((current) => {
@@ -107,21 +145,24 @@ export function TaskAssetsPage() {
     setIsLoadingTaskData(true);
     setActionError(null);
     try {
-      const [taskAssetResult, snapshot, resultRecords, actionRecords] = await Promise.all([
+      const [taskAssetResult, snapshot, resultRecords, actionRecords, feedbackRecords] = await Promise.all([
         window.taskApi.listTaskAssets(taskId),
         window.memoryApi.getTaskPreparationMemorySnapshot(taskId),
         window.resultApi.listTaskResults(taskId),
         window.resultApi.listTaskReviewActions(taskId),
+        window.resultApi.listTaskAutoFeedbacks(taskId),
       ]);
       setTaskAssets(taskAssetResult);
       setMemorySnapshot(snapshot);
       setResults(resultRecords);
       setReviewActions(actionRecords);
+      setAutoFeedbacks(feedbackRecords);
       setMemoryError(null);
     } catch (error) {
       setTaskAssets([]);
       setResults([]);
       setReviewActions([]);
+      setAutoFeedbacks([]);
       setMemorySnapshot(null);
       setMemoryError(error instanceof Error ? error.message : '任务上下文读取失败。');
     } finally {
@@ -143,6 +184,7 @@ export function TaskAssetsPage() {
       setTaskAssets([]);
       setResults([]);
       setReviewActions([]);
+      setAutoFeedbacks([]);
       setMemorySnapshot(null);
       setMemoryError(null);
       return;
@@ -229,8 +271,8 @@ export function TaskAssetsPage() {
     setActionSuccess(null);
     try {
       await window.resultApi.approveResult(selectedTaskId, resultId, reviewNotes[resultId] ?? '');
-      setActionSuccess('结果已通过。');
-      await loadSelectedTaskData(selectedTaskId);
+      setActionSuccess('结果已通过，并已进入阶段 6 闭环动作。');
+      await refreshAfterAction(selectedTaskId);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : '结果通过失败。');
     } finally {
@@ -275,14 +317,30 @@ export function TaskAssetsPage() {
     }
   };
 
+  const handleRetryClosure = async () => {
+    if (!selectedTaskId || !canRetryClosure) return;
+    setIsRetryingClosure(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await window.taskApi.retryTaskClosure(selectedTaskId);
+      setActionSuccess('闭环动作已重新执行。');
+      await refreshAfterAction(selectedTaskId);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '闭环重试失败。');
+    } finally {
+      setIsRetryingClosure(false);
+    }
+  };
+
   if (isLoading) {
-    return <section className="page-card page-stack"><p className="eyebrow">Stage 5-1</p><h2>正在读取任务审核页...</h2></section>;
+    return <section className="page-card page-stack"><p className="eyebrow">Stage 6-1</p><h2>正在读取任务审核页...</h2></section>;
   }
 
   if (loadError) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 5-1</p>
+        <p className="eyebrow">Stage 6-1</p>
         <h2>任务审核页读取失败</h2>
         <p className="inline-error">{loadError}</p>
         <Link className="ghost-button link-button" to="/">返回项目列表</Link>
@@ -293,7 +351,7 @@ export function TaskAssetsPage() {
   if (!projectId || !project) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 5-1</p>
+        <p className="eyebrow">Stage 6-1</p>
         <h2>项目不存在</h2>
         <p className="muted-text">未找到项目，请返回项目列表重新选择。</p>
         <Link className="ghost-button link-button" to="/">返回项目列表</Link>
@@ -306,9 +364,11 @@ export function TaskAssetsPage() {
       <div className="page-card page-stack">
         <div className="page-heading">
           <div>
-            <p className="eyebrow">Stage 5-1</p>
-            <h2>任务内审核页</h2>
-            <p className="page-helper">这里负责结果层承接、人工审核、基于一句意见再生成，以及人工保存文本为素材，不进入自动回流与临时记忆更新。</p>
+            <p className="eyebrow">Stage 6-1</p>
+            <h2>任务内审核与闭环页</h2>
+            <p className="page-helper">
+              这里继续承接结果审核，同时补上阶段 6 的最小闭环反馈：标题 / 封面文案自动回流、最近临时记忆更新，以及失败后的最小重试。
+            </p>
           </div>
           <div className="project-home-actions">
             <Link className="ghost-button link-button" to={`/projects/${project.id}`}>返回项目主页</Link>
@@ -325,7 +385,7 @@ export function TaskAssetsPage() {
               <Link className="ghost-button link-button" to={`/projects/${project.id}`}>返回主页发起任务</Link>
             </div>
             {tasks.length === 0 ? (
-              <div className="empty-state"><h3>当前还没有任务</h3><p>先从项目主页发起任务，再进入当前页进行生成与审核。</p></div>
+              <div className="empty-state"><h3>当前还没有任务</h3><p>先从项目主页发起任务，再进入当前页进行生成、审核与闭环。</p></div>
             ) : (
               <div className="task-list">
                 {tasks.map((task) => (
@@ -333,6 +393,7 @@ export function TaskAssetsPage() {
                     <strong>{task.title}</strong>
                     <p className="muted-text">目标：{task.goal}</p>
                     <p className="muted-text">{formatTaskForm(task.taskForm)} · {formatTaskStatus(task.status)}</p>
+                    <p className="muted-text">{formatLoopStatus(task.loopStatus)}</p>
                   </button>
                 ))}
               </div>
@@ -345,14 +406,17 @@ export function TaskAssetsPage() {
             <section className="page-card page-stack">
               <p className="eyebrow">Task Review</p>
               <h3>请选择一个任务</h3>
-              <p className="muted-text">从左侧任务列表选择一个任务，进入当前任务维度的结果审核。</p>
+              <p className="muted-text">从左侧任务列表选择一个任务，进入当前任务维度的审核与闭环处理。</p>
             </section>
           ) : (
             <>
               <section className="page-card page-stack">
                 <div className="settings-section__header">
                   <div><p className="eyebrow">Current Task</p><h3>{selectedTask.title}</h3></div>
-                  <span className="status-chip">{formatTaskStatus(selectedTask.status)}</span>
+                  <div className="project-home-actions">
+                    <span className="status-chip">{formatTaskStatus(selectedTask.status)}</span>
+                    <span className={getStatusChipClass(selectedTask.loopStatus)}>{formatLoopStatus(selectedTask.loopStatus)}</span>
+                  </div>
                 </div>
 
                 <div className="detail-grid">
@@ -362,6 +426,9 @@ export function TaskAssetsPage() {
                   <div><dt>更新时间</dt><dd>{formatDate(selectedTask.updatedAt)}</dd></div>
                 </div>
 
+                {selectedTask.lastFailureReason ? (
+                  <p className="inline-error">最近失败原因：{selectedTask.lastFailureReason}</p>
+                ) : null}
                 {actionError ? <p className="inline-error">{actionError}</p> : null}
                 {actionSuccess ? <p className="success-text">{actionSuccess}</p> : null}
 
@@ -369,12 +436,81 @@ export function TaskAssetsPage() {
                   <button className="primary-button" type="button" onClick={() => void handleGenerateInitialResults()} disabled={!canGenerate || isGenerating || isLoadingTaskData}>
                     {isGenerating ? '正在生成候选...' : results.length === 0 ? '生成候选并进入审核' : '当前结果已生成'}
                   </button>
+                  <button className="ghost-button" type="button" onClick={() => void handleRetryClosure()} disabled={!canRetryClosure || isRetryingClosure}>
+                    {isRetryingClosure ? '正在重试闭环...' : '重试闭环动作'}
+                  </button>
                   <Link className="ghost-button link-button" to={`/projects/${project.id}/results`}>打开项目结果回看</Link>
                 </div>
 
                 {selectedTask.status === 'failed' ? (
-                  <p className="inline-error">上一次生成失败。你可以检查素材与常驻记忆后，再从待审核结果上继续打回重生成。</p>
+                  <p className="inline-error">上一轮候选生成失败，但任务输入、素材挂接与常驻记忆来源都已保留，可继续重试。</p>
                 ) : null}
+              </section>
+
+              <section className="page-card page-stack">
+                <div className="settings-section__header">
+                  <div><p className="eyebrow">Loop Feedback</p><h3>闭环状态反馈</h3></div>
+                  {approvedResult ? <span className="muted-text">仅针对已通过结果生效</span> : null}
+                </div>
+
+                {!approvedResult ? (
+                  <div className="empty-state">
+                    <h3>当前还没有已通过结果</h3>
+                    <p>先对某个候选执行“通过”，系统才会进入标题 / 封面文案自动回流与最近临时记忆更新。</p>
+                  </div>
+                ) : (
+                  <div className="closure-grid">
+                    <article className="memory-card">
+                      <h4>已通过结果闭环状态</h4>
+                      <dl className="memory-list">
+                        <div><dt>通过结果</dt><dd>{approvedResult.title}</dd></div>
+                        <div><dt>封面文案</dt><dd>{approvedResult.coverText || '未提供，无法自动回流。'}</dd></div>
+                        <div><dt>闭环状态</dt><dd>{formatLoopStatus(selectedTask.loopStatus)}</dd></div>
+                        <div><dt>最近失败时间</dt><dd>{formatDate(selectedTask.lastFailureAt)}</dd></div>
+                      </dl>
+                    </article>
+
+                    <article className="memory-card">
+                      <h4>自动回流记录</h4>
+                      <div className="feedback-list">
+                        {(['title', 'cover_text'] as const).map((feedbackType) => {
+                          const feedback = autoFeedbackMap.get(feedbackType);
+                          return (
+                            <article key={feedbackType} className="feedback-item">
+                              <div className="candidate-card__header">
+                                <strong>{formatFeedbackType(feedbackType)}</strong>
+                                <span className={getStatusChipClass(feedback?.status ?? 'failed')}>
+                                  {feedback ? formatFeedbackStatus(feedback.status) : '待执行'}
+                                </span>
+                              </div>
+                              <p className="muted-text">
+                                {feedback?.feedbackText || (feedbackType === 'title' ? approvedResult.title : approvedResult.coverText || '暂无合法来源')}
+                              </p>
+                              {feedback?.assetId ? <p className="muted-text">目标素材：{assetNameMap.get(feedback.assetId) ?? feedback.assetId}</p> : null}
+                              {feedback?.errorMessage ? <p className="inline-error">{feedback.errorMessage}</p> : null}
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </article>
+
+                    <article className="memory-card">
+                      <h4>最近临时记忆更新</h4>
+                      {currentTaskRecentMemories.length === 0 ? (
+                        <p className="muted-text">当前任务还没有写入最近临时记忆，或闭环尚未完成。</p>
+                      ) : (
+                        <div className="memory-summary-list">
+                          {currentTaskRecentMemories.map((memory) => (
+                            <article key={memory.id} className="memory-summary-item">
+                              <strong>{memory.summaryText}</strong>
+                              <p className="muted-text">创建：{formatDate(memory.createdAt)} · 过期：{formatDate(memory.expiresAt)}</p>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  </div>
+                )}
               </section>
 
               <section className="page-card page-stack">
@@ -398,7 +534,7 @@ export function TaskAssetsPage() {
                     <Link className="ghost-button link-button" to={`/projects/${project.id}/assets`}>打开素材库</Link>
                   </div>
                 ) : (
-                  <p className="muted-text">当前任务已经进入结果层，素材挂接保持只读；如需更换素材，请在对应候选上执行打回重生成。</p>
+                  <p className="muted-text">当前任务已经进入结果审核与闭环阶段，素材挂接保持只读；如需更换素材，请对对应结果执行打回重生成。</p>
                 )}
 
                 {taskAssets.length === 0 ? (
@@ -417,7 +553,7 @@ export function TaskAssetsPage() {
                         </div>
                         {canEditAssets ? (
                           <button className="danger-button" type="button" onClick={() => void handleRemoveAsset(item.assetId)} disabled={removingAssetId === item.assetId}>
-                            {removingAssetId === item.assetId ? '移出中...' : '移出任务'}
+                            {removingAssetId === item.assetId ? '移除中...' : '移出任务'}
                           </button>
                         ) : null}
                       </article>
@@ -483,6 +619,7 @@ export function TaskAssetsPage() {
                           <span className="status-chip is-active">{formatResultStatus(approvedResult.status)}</span>
                         </div>
 
+                        {approvedResult.coverText ? <p className="candidate-cover">封面文案：{approvedResult.coverText}</p> : null}
                         <p className="candidate-body">{renderResultPreview(approvedResult)}</p>
 
                         {approvedResult.resultType === 'video' ? (
@@ -509,7 +646,7 @@ export function TaskAssetsPage() {
                     {reviewableResults.length === 0 ? (
                       <div className="empty-state">
                         <h3>当前没有待审核或已打回结果</h3>
-                        <p>如果已经有通过结果，可以直接在上方查看；如果需要新一轮候选，请在当前任务中重新发起主链生成。</p>
+                        <p>如果已经有通过结果，可以直接在上方查看；如果需要新一轮候选，请在当前任务中重新触发生成。</p>
                       </div>
                     ) : (
                       <div className="task-candidate-list">
@@ -529,6 +666,7 @@ export function TaskAssetsPage() {
                                 <span className="status-chip">{formatResultStatus(result.status)}</span>
                               </div>
 
+                              {result.coverText ? <p className="candidate-cover">封面文案：{result.coverText}</p> : null}
                               <p className="candidate-body">{renderResultPreview(result)}</p>
 
                               {result.resultType === 'video' ? (

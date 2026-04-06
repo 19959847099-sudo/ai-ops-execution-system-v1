@@ -6,6 +6,7 @@ import type {
   taskCandidateSchema,
   taskCandidateSegmentSchema,
   taskFormSchema,
+  taskLoopStatusSchema,
   taskStatusSchema,
   videoTaskCandidateSchema,
 } from '../schema/task';
@@ -13,6 +14,7 @@ import type { AssetRecord } from './asset';
 
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export type TaskForm = z.infer<typeof taskFormSchema>;
+export type TaskLoopStatus = z.infer<typeof taskLoopStatusSchema>;
 export type CreateTaskInput = z.infer<typeof createTaskInputSchema>;
 export type CreateTaskShellInput = z.infer<typeof createTaskShellInputSchema>;
 export type TaskCandidateSegment = z.infer<typeof taskCandidateSegmentSchema>;
@@ -28,6 +30,9 @@ export type TaskRecord = {
   taskForm: TaskForm;
   supplementalRequirements: string;
   status: TaskStatus;
+  loopStatus: TaskLoopStatus;
+  lastFailureAt: string | null;
+  lastFailureReason: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -50,4 +55,5 @@ export type TaskBridgeApi = {
   removeAsset: (taskId: string, assetId: string) => Promise<void>;
   listTaskCandidates: (taskId: string) => Promise<TaskCandidateRecord[]>;
   generateTaskCandidates: (taskId: string) => Promise<TaskCandidateRecord[]>;
+  retryTaskClosure: (taskId: string) => Promise<TaskRecord>;
 };

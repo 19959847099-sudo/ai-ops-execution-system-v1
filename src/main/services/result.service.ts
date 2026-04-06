@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { articleResultSchema, regenerateFromReviewInputSchema, resultRecordSchema, resultReviewActionSchema, videoResultSchema } from '../../shared/schema/result';
+import {
+  articleResultSchema,
+  regenerateFromReviewInputSchema,
+  resultAutoFeedbackRecordSchema,
+  resultRecordSchema,
+  resultReviewActionSchema,
+  videoResultSchema,
+} from '../../shared/schema/result';
 import type { AssetRecord, CreateTextAssetInput } from '../../shared/types/asset';
 import type {
   ArticleTaskCandidateRecord,
@@ -10,6 +17,9 @@ import type {
 } from '../../shared/types/task';
 import type {
   RegenerateFromReviewInput,
+  ResultAutoFeedbackRecord,
+  ResultAutoFeedbackStatus,
+  ResultAutoFeedbackType,
   ResultRecord,
   ResultReviewActionRecord,
   ResultStatus,
@@ -23,6 +33,7 @@ type ResultRow = {
   source_result_id: string | null;
   result_type: 'article' | 'video';
   title: string;
+  cover_text: string;
   body: string | null;
   structured_description: string | null;
   segments_json: string | null;
@@ -39,6 +50,20 @@ type ReviewActionRow = {
   note: string;
   related_asset_id: string | null;
   created_at: string;
+};
+
+type AutoFeedbackRow = {
+  id: string;
+  project_id: string;
+  task_id: string;
+  result_id: string;
+  feedback_type: ResultAutoFeedbackType;
+  feedback_text: string;
+  asset_id: string | null;
+  status: ResultAutoFeedbackStatus;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export class ResultService {
@@ -58,6 +83,7 @@ export class ResultService {
             source_result_id,
             result_type,
             title,
+            cover_text,
             body,
             structured_description,
             segments_json,
@@ -85,6 +111,7 @@ export class ResultService {
             source_result_id,
             result_type,
             title,
+            cover_text,
             body,
             structured_description,
             segments_json,
@@ -123,6 +150,58 @@ export class ResultService {
     return rows.map((row) => this.mapReviewActionRow(row));
   }
 
+  listTaskAutoFeedbacks(taskId: string): ResultAutoFeedbackRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            project_id,
+            task_id,
+            result_id,
+            feedback_type,
+            feedback_text,
+            asset_id,
+            status,
+            error_message,
+            created_at,
+            updated_at
+          FROM result_auto_feedbacks
+          WHERE task_id = ?
+          ORDER BY updated_at DESC, created_at DESC
+        `,
+      )
+      .all(taskId) as AutoFeedbackRow[];
+
+    return rows.map((row) => this.mapAutoFeedbackRow(row));
+  }
+
+  listProjectAutoFeedbacks(projectId: string): ResultAutoFeedbackRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            project_id,
+            task_id,
+            result_id,
+            feedback_type,
+            feedback_text,
+            asset_id,
+            status,
+            error_message,
+            created_at,
+            updated_at
+          FROM result_auto_feedbacks
+          WHERE project_id = ?
+          ORDER BY updated_at DESC, created_at DESC
+        `,
+      )
+      .all(projectId) as AutoFeedbackRow[];
+
+    return rows.map((row) => this.mapAutoFeedbackRow(row));
+  }
+
   getResultById(resultId: string): ResultRecord | null {
     const row = this.db
       .prepare(
@@ -134,6 +213,7 @@ export class ResultService {
             source_result_id,
             result_type,
             title,
+            cover_text,
             body,
             structured_description,
             segments_json,
@@ -172,6 +252,7 @@ export class ResultService {
         source_result_id,
         result_type,
         title,
+        cover_text,
         body,
         structured_description,
         segments_json,
@@ -179,7 +260,7 @@ export class ResultService {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?)
     `);
 
     const createdIds: string[] = [];
@@ -196,6 +277,7 @@ export class ResultService {
             sourceResultId,
             resultType: 'article',
             title: candidate.title,
+            coverText: candidate.coverText,
             body: candidate.body,
             status: 'pending_review',
             createdAt: now,
@@ -209,6 +291,7 @@ export class ResultService {
             normalized.sourceResultId,
             normalized.resultType,
             normalized.title,
+            normalized.coverText,
             normalized.body,
             null,
             null,
@@ -225,6 +308,7 @@ export class ResultService {
           sourceResultId,
           resultType: 'video',
           title: candidate.title,
+          coverText: candidate.coverText,
           structuredDescription: candidate.structuredDescription,
           segments: candidate.segments,
           status: 'pending_review',
@@ -239,6 +323,7 @@ export class ResultService {
           normalized.sourceResultId,
           normalized.resultType,
           normalized.title,
+          normalized.coverText,
           null,
           normalized.structuredDescription,
           JSON.stringify(normalized.segments),
@@ -364,6 +449,99 @@ export class ResultService {
     return asset;
   }
 
+  upsertAutoFeedbackRecord(input: Omit<ResultAutoFeedbackRecord, 'id' | 'createdAt' | 'updatedAt'> & {
+    id?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  }): ResultAutoFeedbackRecord {
+    const now = new Date().toISOString();
+    const current = this.getAutoFeedbackByResultAndType(input.resultId, input.feedbackType);
+    const normalized = resultAutoFeedbackRecordSchema.parse({
+      id: current?.id ?? input.id ?? randomUUID(),
+      projectId: input.projectId,
+      taskId: input.taskId,
+      resultId: input.resultId,
+      feedbackType: input.feedbackType,
+      feedbackText: input.feedbackText,
+      assetId: input.assetId ?? null,
+      status: input.status,
+      errorMessage: input.errorMessage ?? '',
+      createdAt: current?.createdAt ?? input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+    });
+
+    this.db
+      .prepare(
+        `
+          INSERT INTO result_auto_feedbacks (
+            id,
+            project_id,
+            task_id,
+            result_id,
+            feedback_type,
+            feedback_text,
+            asset_id,
+            status,
+            error_message,
+            created_at,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(result_id, feedback_type) DO UPDATE SET
+            project_id = excluded.project_id,
+            task_id = excluded.task_id,
+            feedback_text = excluded.feedback_text,
+            asset_id = excluded.asset_id,
+            status = excluded.status,
+            error_message = excluded.error_message,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        normalized.id,
+        normalized.projectId,
+        normalized.taskId,
+        normalized.resultId,
+        normalized.feedbackType,
+        normalized.feedbackText,
+        normalized.assetId,
+        normalized.status,
+        normalized.errorMessage,
+        normalized.createdAt,
+        normalized.updatedAt,
+      );
+
+    return this.getAutoFeedbackByResultAndType(normalized.resultId, normalized.feedbackType) ?? normalized;
+  }
+
+  getAutoFeedbackByResultAndType(
+    resultId: string,
+    feedbackType: ResultAutoFeedbackType,
+  ): ResultAutoFeedbackRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            project_id,
+            task_id,
+            result_id,
+            feedback_type,
+            feedback_text,
+            asset_id,
+            status,
+            error_message,
+            created_at,
+            updated_at
+          FROM result_auto_feedbacks
+          WHERE result_id = ? AND feedback_type = ?
+        `,
+      )
+      .get(resultId, feedbackType) as AutoFeedbackRow | undefined;
+
+    return row ? this.mapAutoFeedbackRow(row) : null;
+  }
+
   toTaskCandidates(results: ResultRecord[]): TaskCandidateRecord[] {
     return results
       .filter((result) => result.status === 'pending_review')
@@ -375,6 +553,7 @@ export class ResultService {
             candidateType: 'article',
             sequence: index + 1,
             title: result.title,
+            coverText: result.coverText,
             body: result.body,
             generatedAt: result.createdAt,
           } satisfies ArticleTaskCandidateRecord;
@@ -386,6 +565,7 @@ export class ResultService {
           candidateType: 'video',
           sequence: index + 1,
           title: result.title,
+          coverText: result.coverText,
           structuredDescription: result.structuredDescription,
           segments: result.segments,
           generatedAt: result.createdAt,
@@ -430,6 +610,7 @@ export class ResultService {
         sourceResultId: row.source_result_id,
         resultType: 'article',
         title: row.title,
+        coverText: row.cover_text,
         body: row.body ?? '',
         status: row.status,
         createdAt: row.created_at,
@@ -444,6 +625,7 @@ export class ResultService {
       sourceResultId: row.source_result_id,
       resultType: 'video',
       title: row.title,
+      coverText: row.cover_text,
       structuredDescription: row.structured_description ?? '',
       segments: JSON.parse(row.segments_json ?? '[]') as unknown[],
       status: row.status,
@@ -461,6 +643,22 @@ export class ResultService {
       note: row.note,
       relatedAssetId: row.related_asset_id,
       createdAt: row.created_at,
+    });
+  }
+
+  private mapAutoFeedbackRow(row: AutoFeedbackRow): ResultAutoFeedbackRecord {
+    return resultAutoFeedbackRecordSchema.parse({
+      id: row.id,
+      projectId: row.project_id,
+      taskId: row.task_id,
+      resultId: row.result_id,
+      feedbackType: row.feedback_type,
+      feedbackText: row.feedback_text,
+      assetId: row.asset_id,
+      status: row.status,
+      errorMessage: row.error_message,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     });
   }
 }

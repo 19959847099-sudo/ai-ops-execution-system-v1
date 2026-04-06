@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const taskStatusSchema = z.enum(['draft', 'generating', 'ready', 'failed']);
 export const taskFormSchema = z.enum(['article', 'video']);
+export const taskLoopStatusSchema = z.enum(['pending', 'completed', 'failed']);
 
 export const createTaskInputSchema = z.object({
   title: z.string().trim().min(1).max(120),
@@ -22,6 +23,7 @@ const baseTaskCandidateSchema = z.object({
   taskId: z.string(),
   sequence: z.number().int().min(1),
   title: z.string().trim().min(1).max(200),
+  coverText: z.string().trim().max(120).default(''),
   generatedAt: z.string(),
 });
 

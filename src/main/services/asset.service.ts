@@ -16,6 +16,7 @@ import type {
   AssetType,
   CreateTextAssetInput,
 } from '../../shared/types/asset';
+import type { ResultAutoFeedbackType } from '../../shared/types/result';
 import { ProjectService } from './project.service';
 import { AssetStorageService } from './asset-storage.service';
 
@@ -278,6 +279,23 @@ export class AssetService {
     }
 
     return asset;
+  }
+
+  createAutoFeedbackAsset(
+    projectId: string,
+    feedbackType: ResultAutoFeedbackType,
+    sourceTitle: string,
+    textContent: string,
+  ): AssetRecord {
+    const displayName =
+      feedbackType === 'title'
+        ? `${sourceTitle}-自动回流标题`
+        : `${sourceTitle}-自动回流封面文案`;
+
+    return this.createTextAsset(projectId, {
+      displayName,
+      textContent,
+    });
   }
 
   getAssetLibrarySummary(projectId: string): AssetLibrarySummary {

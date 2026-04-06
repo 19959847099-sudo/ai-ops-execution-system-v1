@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import type { AssetRecord } from '../../shared/types/asset';
+import type { TaskPreparationMemorySnapshot } from '../../shared/types/memory';
 import type {
   ArticleTaskCandidateRecord,
   TaskCandidateSegment,
   TaskForm,
   VideoTaskCandidateRecord,
 } from '../../shared/types/task';
-import type { TaskPreparationMemorySnapshot } from '../../shared/types/memory';
 import { SettingsService } from './settings.service';
 
 type TaskGenerationContext = {
@@ -20,36 +20,37 @@ type TaskGenerationContext = {
   reviewInstruction?: string;
 };
 
-type GeneratedArticleCandidate = Pick<ArticleTaskCandidateRecord, 'candidateType' | 'title' | 'body'>;
+type GeneratedArticleCandidate = Pick<
+  ArticleTaskCandidateRecord,
+  'candidateType' | 'title' | 'coverText' | 'body'
+>;
 type GeneratedVideoCandidate = Pick<
   VideoTaskCandidateRecord,
-  'candidateType' | 'title' | 'structuredDescription' | 'segments'
+  'candidateType' | 'title' | 'coverText' | 'structuredDescription' | 'segments'
 >;
 
 type GeneratedTaskCandidate = GeneratedArticleCandidate | GeneratedVideoCandidate;
 
-const articleCandidateResponseSchema = z.object({
-  candidates: z.array(
-    z.object({
-      title: z.string().trim().min(1).max(200),
-      body: z.string().trim().min(1),
-    }),
-  ).min(2).max(3),
+const articleCandidateItemSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  coverText: z.string().trim().min(1).max(120),
+  body: z.string().trim().min(1),
 });
 
-const videoCandidateResponseSchema = z.object({
-  candidates: z.array(
+const videoCandidateItemSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  coverText: z.string().trim().min(1).max(120),
+  structuredDescription: z.string().trim().min(1),
+  segments: z.array(
     z.object({
-      title: z.string().trim().min(1).max(200),
-      structuredDescription: z.string().trim().min(1),
-      segments: z.array(
-        z.object({
-          heading: z.string().trim().min(1).max(120),
-          content: z.string().trim().min(1).max(1000),
-        }),
-      ).min(1).max(12),
+      heading: z.string().trim().min(1).max(120),
+      content: z.string().trim().min(1).max(1000),
     }),
-  ).min(2).max(3),
+  ).min(1).max(12),
+});
+
+const candidateEnvelopeSchema = z.object({
+  candidates: z.array(z.unknown()).min(1).max(3),
 });
 
 type ChatCompletionResponse = {
@@ -101,20 +102,41 @@ export class AiService {
     const payload = (await response.json()) as ChatCompletionResponse;
     const content = this.readMessageContent(payload);
     const parsed = this.parseJsonPayload(content);
+    const envelope = candidateEnvelopeSchema.parse(parsed);
 
     if (context.taskForm === 'article') {
-      const result = articleCandidateResponseSchema.parse(parsed);
-      return result.candidates.map((candidate) => ({
+      const candidates = envelope.candidates
+        .map((candidate) => articleCandidateItemSchema.safeParse(candidate))
+        .filter((candidate) => candidate.success)
+        .map((candidate) => candidate.data)
+        .slice(0, 3);
+
+      if (candidates.length === 0) {
+        throw new Error('模型没有返回可承接的图文候选。');
+      }
+
+      return candidates.map((candidate) => ({
         candidateType: 'article',
         title: candidate.title,
+        coverText: candidate.coverText,
         body: candidate.body,
       }));
     }
 
-    const result = videoCandidateResponseSchema.parse(parsed);
-    return result.candidates.map((candidate) => ({
+    const candidates = envelope.candidates
+      .map((candidate) => videoCandidateItemSchema.safeParse(candidate))
+      .filter((candidate) => candidate.success)
+      .map((candidate) => candidate.data)
+      .slice(0, 3);
+
+    if (candidates.length === 0) {
+      throw new Error('模型没有返回可承接的视频候选。');
+    }
+
+    return candidates.map((candidate) => ({
       candidateType: 'video',
       title: candidate.title,
+      coverText: candidate.coverText,
       structuredDescription: candidate.structuredDescription,
       segments: candidate.segments as TaskCandidateSegment[],
     }));
@@ -124,18 +146,20 @@ export class AiService {
     if (taskForm === 'article') {
       return [
         '你是 AI 运营执行系统 V1 的主链候选生成器。',
-        '你的任务是基于给定任务信息、常驻记忆与素材摘要，输出 2 到 3 个图文候选。',
+        '你的任务是基于给定任务信息、常驻记忆、最近临时记忆与素材摘要，输出 2 到 3 个图文候选。',
         '必须只输出 JSON，不要输出解释、Markdown 或代码块。',
-        'JSON 结构固定为 {"candidates":[{"title":"...","body":"..."}]}。',
+        'JSON 结构固定为 {"candidates":[{"title":"...","coverText":"...","body":"..."}]}。',
+        'coverText 表示封面文案，必须可直接用于后续自动回流。',
       ].join('\n');
     }
 
     return [
       '你是 AI 运营执行系统 V1 的主链候选生成器。',
-      '你的任务是基于给定任务信息、常驻记忆与素材摘要，输出 2 到 3 个视频候选包。',
+      '你的任务是基于给定任务信息、常驻记忆、最近临时记忆与素材摘要，输出 2 到 3 个视频候选包。',
       '必须只输出 JSON，不要输出解释、Markdown 或代码块。',
-      'JSON 结构固定为 {"candidates":[{"title":"...","structuredDescription":"...","segments":[{"heading":"...","content":"..."}]}]}。',
-      'segments 表示分镜或段落级结构，只允许文字结构化说明，不要涉及剪辑时间轴、TTS、BGM。',
+      'JSON 结构固定为 {"candidates":[{"title":"...","coverText":"...","structuredDescription":"...","segments":[{"heading":"...","content":"..."}]}]}。',
+      'coverText 表示封面文案，必须可直接用于后续自动回流。',
+      'segments 只允许文本级结构化说明，不要涉及剪辑时间轴、TTS 或 BGM。',
     ].join('\n');
   }
 
@@ -162,6 +186,13 @@ export class AiService {
             ].join('\n');
           });
 
+    const recentMemoryLines =
+      context.memorySnapshot.recentTemporaryMemories.length === 0
+        ? ['- 当前还没有最近临时记忆。']
+        : context.memorySnapshot.recentTemporaryMemories.map((memory, index) =>
+            `- 临时记忆 ${index + 1}: ${memory.summaryText}`,
+          );
+
     return [
       '请基于以下上下文生成候选：',
       '',
@@ -186,15 +217,18 @@ export class AiService {
       `- 开发偏好: ${context.memorySnapshot.userResidentMemory.developmentPreference || '无'}`,
       `- 成本偏好: ${context.memorySnapshot.userResidentMemory.costPreference || '无'}`,
       '',
-      '四、当前任务挂接素材摘要',
+      '四、最近临时记忆',
+      ...recentMemoryLines,
+      '',
+      '五、当前任务挂接素材摘要',
       ...assetLines,
       '',
       context.reviewInstruction
-        ? ['五、审核意见', `- 请优先吸收以下一句修改意见：${context.reviewInstruction}`, ''].join('\n')
+        ? ['六、审核意见', `- 请优先吸收以下一句修改意见：${context.reviewInstruction}`, ''].join('\n')
         : '',
       context.taskForm === 'article'
-        ? '请返回 3 个图文候选，标题风格要清晰区分，正文直接给出可阅读成稿。'
-        : '请返回 3 个视频候选，必须是结构化视频候选包，每个候选都要给出结构化说明与分镜或段落级结构。',
+        ? '请返回 2 到 3 个图文候选，每个候选必须包含标题、封面文案与正文。'
+        : '请返回 2 到 3 个视频候选，每个候选必须包含标题、封面文案、结构化说明与分镜或段落级结构。',
     ].join('\n');
   }
 

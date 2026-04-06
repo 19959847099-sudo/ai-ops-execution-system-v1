@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { AssetLibrarySummary } from '@shared/types/asset';
+import type { RecentTemporaryMemoryRecord } from '@shared/types/memory';
 import type { ProjectRecord } from '@shared/types/project';
-import type { CreateTaskInput, TaskForm, TaskRecord, TaskStatus } from '@shared/types/task';
+import type { CreateTaskInput, TaskForm, TaskLoopStatus, TaskRecord, TaskStatus } from '@shared/types/task';
 
 const EMPTY_SUMMARY: AssetLibrarySummary = {
   totalCount: 0,
@@ -20,10 +21,7 @@ const EMPTY_TASK_FORM: CreateTaskInput = {
 };
 
 function formatDate(value: string | null): string {
-  if (!value) {
-    return '暂无';
-  }
-
+  if (!value) return '暂无';
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -35,23 +33,26 @@ function formatProjectStatus(status: ProjectRecord['status']): string {
 }
 
 function formatTaskStatus(status: TaskStatus): string {
-  if (status === 'generating') {
-    return '生成中';
-  }
-
-  if (status === 'ready') {
-    return '已产出候选';
-  }
-
-  if (status === 'failed') {
-    return '生成失败';
-  }
-
+  if (status === 'generating') return '生成中';
+  if (status === 'ready') return '已产出候选';
+  if (status === 'failed') return '生成失败';
   return '待生成';
 }
 
 function formatTaskForm(taskForm: TaskForm): string {
   return taskForm === 'article' ? '图文' : '视频';
+}
+
+function formatLoopStatus(status: TaskLoopStatus): string {
+  if (status === 'completed') return '闭环已完成';
+  if (status === 'failed') return '闭环失败';
+  return '闭环待完成';
+}
+
+function getStatusChipClass(status: TaskLoopStatus): string {
+  if (status === 'completed') return 'status-chip is-active';
+  if (status === 'failed') return 'status-chip is-danger';
+  return 'status-chip';
 }
 
 export function ProjectHomePage() {
@@ -60,6 +61,7 @@ export function ProjectHomePage() {
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [assetSummary, setAssetSummary] = useState<AssetLibrarySummary>(EMPTY_SUMMARY);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [recentTemporaryMemories, setRecentTemporaryMemories] = useState<RecentTemporaryMemoryRecord[]>([]);
   const [form, setForm] = useState<CreateTaskInput>(EMPTY_TASK_FORM);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
@@ -67,6 +69,7 @@ export function ProjectHomePage() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   const recentTasks = useMemo(() => tasks.slice(0, 3), [tasks]);
+  const recentMemoryPreview = useMemo(() => recentTemporaryMemories.slice(0, 4), [recentTemporaryMemories]);
 
   useEffect(() => {
     let disposed = false;
@@ -83,16 +86,18 @@ export function ProjectHomePage() {
       setError(null);
 
       try {
-        const [projectRecord, summary, taskRecords] = await Promise.all([
+        const [projectRecord, summary, taskRecords, memoryRecords] = await Promise.all([
           window.projectApi.getProjectById(projectId),
           window.assetApi.getAssetLibrarySummary(projectId),
           window.taskApi.listTasks(projectId),
+          window.memoryApi.listRecentTemporaryMemories(projectId),
         ]);
 
         if (!disposed) {
           setProject(projectRecord);
           setAssetSummary(summary);
           setTasks(taskRecords);
+          setRecentTemporaryMemories(memoryRecords);
         }
       } catch (nextError) {
         if (!disposed) {
@@ -119,9 +124,7 @@ export function ProjectHomePage() {
 
   const handleCreateTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!projectId) {
-      return;
-    }
+    if (!projectId) return;
 
     setIsCreatingTask(true);
     setCreateError(null);
@@ -139,7 +142,7 @@ export function ProjectHomePage() {
   if (isLoading) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 4-1</p>
+        <p className="eyebrow">Stage 6-3</p>
         <h2>正在读取项目主页...</h2>
       </section>
     );
@@ -148,7 +151,7 @@ export function ProjectHomePage() {
   if (error) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 4-1</p>
+        <p className="eyebrow">Stage 6-3</p>
         <h2>项目读取失败</h2>
         <p className="inline-error">{error}</p>
         <Link className="ghost-button link-button" to="/">
@@ -161,7 +164,7 @@ export function ProjectHomePage() {
   if (!projectId || !project) {
     return (
       <section className="page-card page-stack">
-        <p className="eyebrow">Stage 4-1</p>
+        <p className="eyebrow">Stage 6-3</p>
         <h2>项目不存在</h2>
         <p>未找到项目，请返回项目列表重新选择。</p>
         <Link className="ghost-button link-button" to="/">
@@ -176,10 +179,10 @@ export function ProjectHomePage() {
       <div className="page-card project-home-hero">
         <div className="page-heading">
           <div>
-            <p className="eyebrow">Stage 4-1</p>
+            <p className="eyebrow">Stage 6-3</p>
             <h2>{project.name}</h2>
             <p className="page-helper">
-              项目主页在阶段 4 正式承担主链入口，只负责发起任务并进入候选生成承接，不扩展成结果层或审核页。
+              项目主页继续承担任务发起入口，并在阶段 6 补上最近临时记忆的最小可见反馈，不扩成记忆后台或综合分析页。
             </p>
           </div>
           <div className="project-home-actions">
@@ -190,7 +193,7 @@ export function ProjectHomePage() {
               项目设置
             </Link>
             <Link className="ghost-button link-button" to={`/projects/${project.id}/results`}>
-              缁撴灉鍥炵湅
+              项目结果回看
             </Link>
             <span className={project.status === 'active' ? 'status-chip is-active' : 'status-chip'}>
               {formatProjectStatus(project.status)}
@@ -232,7 +235,7 @@ export function ProjectHomePage() {
         </div>
 
         <p className="page-helper">
-          任务发起卡固定只收集主题、目标、形式与补充要求；生成候选后仍停留在当前任务维度，不进入项目级结果层。
+          任务发起卡仍固定只收集主题、目标、形式与补充要求；阶段 6 不改变主链入口，只补最小闭环反馈。
         </p>
 
         <form className="page-stack task-launch-form" onSubmit={handleCreateTask}>
@@ -310,7 +313,7 @@ export function ProjectHomePage() {
               打开任务承接页
             </Link>
           </div>
-          <p className="page-helper">阶段 4 只承接任务发起与候选生成，不延展为项目级结果列表。</p>
+          <p className="page-helper">这里继续只显示最近任务，同时补上闭环状态反馈，不扩成项目级任务后台。</p>
 
           {recentTasks.length === 0 ? (
             <div className="empty-state feature-empty-state">
@@ -330,6 +333,9 @@ export function ProjectHomePage() {
                   <p className="muted-text">
                     {formatTaskForm(task.taskForm)} · {formatTaskStatus(task.status)}
                   </p>
+                  <div className="page-actions">
+                    <span className={getStatusChipClass(task.loopStatus)}>{formatLoopStatus(task.loopStatus)}</span>
+                  </div>
                 </Link>
               ))}
             </div>
@@ -346,7 +352,7 @@ export function ProjectHomePage() {
               进入素材库
             </Link>
           </div>
-          <p className="page-helper">阶段 4 直接复用阶段 2 的素材库与任务素材挂接结果作为主链输入。</p>
+          <p className="page-helper">阶段 6 的自动回流仍只写回素材库，不改变阶段 2 的素材库主边界。</p>
           <div className="asset-summary-grid">
             <article className="summary-card">
               <span className="summary-card__label">总数</span>
@@ -371,7 +377,7 @@ export function ProjectHomePage() {
               打开素材库
             </Link>
             <Link className="ghost-button link-button" to={`/projects/${project.id}/tasks`}>
-              进入任务承接页
+              进入任务审核页
             </Link>
           </div>
         </section>
@@ -379,20 +385,30 @@ export function ProjectHomePage() {
         <section className="page-card feature-card">
           <div className="feature-card__header">
             <div>
-              <p className="eyebrow">Stage 3</p>
-              <h3>常驻记忆已就绪</h3>
+              <p className="eyebrow">Stage 6</p>
+              <h3>最近临时记忆</h3>
             </div>
-            <Link className="ghost-button link-button" to={`/projects/${project.id}/settings`}>
-              查看项目常驻记忆
+            <Link className="ghost-button link-button" to={`/projects/${project.id}/results`}>
+              查看结果闭环
             </Link>
           </div>
-          <p className="page-helper">
-            阶段 4 会优先复用阶段 3 已形成的任务前常驻记忆快照，不在主链里重新分散读取并重复拼接记忆。
-          </p>
-          <div className="empty-state feature-empty-state">
-            <h4>当前只做读取前置</h4>
-            <p>项目常驻记忆和用户偏好常驻记忆将在任务承接页中被统一读取，但不进入临时记忆、回流或压缩逻辑。</p>
-          </div>
+          <p className="page-helper">这里只读展示最近几条短摘要，用于延续短期语境与避免重复，不扩成长期记忆页。</p>
+
+          {recentMemoryPreview.length === 0 ? (
+            <div className="empty-state feature-empty-state">
+              <h4>当前还没有最近临时记忆</h4>
+              <p>当某个结果通过后，系统会写入最多 4 条短摘要，并按 20 条 / 14 天边界自动清理。</p>
+            </div>
+          ) : (
+            <div className="memory-summary-list">
+              {recentMemoryPreview.map((memory) => (
+                <article key={memory.id} className="memory-summary-item">
+                  <strong>{memory.summaryText}</strong>
+                  <p className="muted-text">创建：{formatDate(memory.createdAt)} · 过期：{formatDate(memory.expiresAt)}</p>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       </div>
     </section>

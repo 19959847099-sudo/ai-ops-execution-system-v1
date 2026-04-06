@@ -24,6 +24,7 @@ export const TASK_IPC_CHANNELS = {
   GET_TASK_BY_ID: 'task:get-by-id',
   LIST_TASK_CANDIDATES: 'task:list-candidates',
   GENERATE_TASK_CANDIDATES: 'task:generate-candidates',
+  RETRY_TASK_CLOSURE: 'task:retry-closure',
   LIST_TASK_ASSETS: 'task:list-assets',
   ATTACH_ASSET: 'task:attach-asset',
   REMOVE_ASSET: 'task:remove-asset',
@@ -35,12 +36,15 @@ export const MEMORY_IPC_CHANNELS = {
   GET_USER_RESIDENT_MEMORY: 'memory:get-user-resident-memory',
   UPDATE_USER_RESIDENT_MEMORY: 'memory:update-user-resident-memory',
   GET_TASK_PREPARATION_SNAPSHOT: 'memory:get-task-preparation-snapshot',
+  LIST_RECENT_TEMPORARY_MEMORIES: 'memory:list-recent-temporary-memories',
 } as const;
 
 export const RESULT_IPC_CHANNELS = {
   LIST_TASK_RESULTS: 'result:list-task-results',
   LIST_PROJECT_RESULTS: 'result:list-project-results',
   LIST_TASK_REVIEW_ACTIONS: 'result:list-task-review-actions',
+  LIST_TASK_AUTO_FEEDBACKS: 'result:list-task-auto-feedbacks',
+  LIST_PROJECT_AUTO_FEEDBACKS: 'result:list-project-auto-feedbacks',
   APPROVE_RESULT: 'result:approve',
   REGENERATE_RESULT: 'result:regenerate',
   SAVE_RESULT_AS_TEXT_ASSET: 'result:save-as-text-asset',
